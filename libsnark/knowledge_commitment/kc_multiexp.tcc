@@ -87,7 +87,7 @@ T kc_multi_exp_with_mixed_addition(const sparse_vector<T> &vec,
     std::vector<unsigned int> counters(ranges.size(), 0);
 
 #ifdef MULTICORE
-    #pragma omp parallel for
+    //#pragma omp parallel for
 #endif
     for (size_t j = 0; j < ranges.size(); j++)
     {
@@ -106,7 +106,10 @@ T kc_multi_exp_with_mixed_addition(const sparse_vector<T> &vec,
 #ifdef USE_MIXED_ADDITION
                 result = result.mixed_add(value_it);
 #else
-                result = result + value_it[i];
+								//result.resize_gpu();
+								//value_it[i].resize_gpu();
+                //result = result + value_it[i];
+                result = result.gpu_add(value_it[i]);
 #endif
                 //++num_add;
             }
