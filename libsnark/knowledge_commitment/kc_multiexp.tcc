@@ -404,33 +404,10 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
       d_bn_exponents.copy_to_host(h_bn_exponents);
       //std::vector<libff::bigint<FieldT::num_limbs>> tmp_bn_exponents(bn_exponents.size());
       memcpy(bn_exponents.data(), h_bn_exponents.ptr, bn_exponents.size() * 32);
-      //for(int i = 0; i < bn_exponents.size(); i++){
-      //  if(density[i] && memcmp(h_bn_exponents.ptr[i]._limbs, bn_exponents[i].data, 32) != 0){
-      //  //if(density[i] && memcmp(tmp_bn_exponents[i].data, bn_exponents[i].data, 32) != 0){
-      //    printf("bn_exponents %d no equal..\n", i);
-      //    break;
-      //  }
-      //  //memcpy(bn_exponents[i].data, h_bn_exponents.ptr[i]._limbs, 32);
-      //}
-
-      //free(h_density);
-      //gpu::gpu_free(d_counters);
-      //gpu::gpu_free(d_index_it);
-      //gpu::gpu_free(d_firsts);
-      //gpu::gpu_free(d_seconds);
-      //gpu::gpu_free(d_density);
-      //dmax_value.release();
-      //max_value.release_host();
-      //d_values.release();
-      //d_partial.release();
-      //d_t_zero.release();
-      //d_t_one.release();
-      //d_field_zero.release();
-      //d_field_one.release();
-      //d_bn_exponents.release();
-      //h_bn_exponents.release_host();
 
       auto tmp = acc + libff::multi_exp_with_density_gpu<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config, d_values, d_density, d_bn_exponents);
+      libff::leave_block("Process scalar vector");
+      return tmp;
     }
 
     /***********end alt_bn128_g1 gpu reduce sum*****************/
