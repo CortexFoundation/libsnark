@@ -93,57 +93,60 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
 
     std::vector<T> partial(ranges.size(), T::zero());
     std::vector<unsigned int> counters(ranges.size(), 0);
-    libff::enter_block("cpu reduce sum");
-    int max_depth = 30130, min_depth = 30130;
+    //libff::enter_block("cpu reduce sum");
+    int max_depth = 0, min_depth = 30130;
+    for(int i = 0; i < ranges.size(); i++){
+      max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
+    }
     //const int local_instances = 64 * BlockDepth;
     //const int blocks = (max_depth + local_instances - 1) / local_instances;
-#pragma omp parallel for
-    for (size_t j = 0; j < ranges.size(); j++)
-    {
-        T result = T::zero();
-        unsigned int count = 0;
-        for (unsigned int i = ranges[j].first; i < ranges[j].second; i++)
-        {
-            const FieldT scalar = scalar_start[index_it[i]];
-            if (scalar == zero)
-            {
-                // do nothing
-                //++num_skip;
-            }
-            else if (scalar == one)
-            {
-#ifdef USE_MIXED_ADDITION
-                //result = result.mixed_add(value_it);
-#else
-                //result = result.gpu_add(value_it[i]);
-                result = result + value_it[i];
-#endif
-                //++num_add;
-            }
-            else
-            {
-                density[i] = true;
-                bn_exponents[i] = scalar.as_bigint();
-                ++count;
-                //++num_other;
-            }
-        }
-        partial[j] = result;
-        counters[j] = count;
-    }
-    libff::leave_block("cpu reduce sum");
-    T acc = T::zero();
-    unsigned int totalCount = 0;
-    for (unsigned int i = 0; i < ranges.size(); i++)
-    {
-        acc = acc + partial[i];
-        totalCount += counters[i];
-    }
+//#pragma omp parallel for
+    //for (size_t j = 0; j < ranges.size(); j++)
+    //{
+    //    T result = T::zero();
+    //    unsigned int count = 0;
+    //    for (unsigned int i = ranges[j].first; i < ranges[j].second; i++)
+    //    {
+    //        const FieldT scalar = scalar_start[index_it[i]];
+    //        if (scalar == zero)
+    //        {
+    //            // do nothing
+    //            //++num_skip;
+    //        }
+    //        else if (scalar == one)
+    //        {
+    //            #ifdef USE_MIXED_ADDITION
+    //            //result = result.mixed_add(value_it);
+    //            #else
+    //            //result = result.gpu_add(value_it[i]);
+    //            result = result + value_it[i];
+    //            #endif
+    //            //++num_add;
+    //        }
+    //        else
+    //        {
+    //            density[i] = true;
+    //            bn_exponents[i] = scalar.as_bigint();
+    //            ++count;
+    //            //++num_other;
+    //        }
+    //    }
+    //    partial[j] = result;
+    //    counters[j] = count;
+    //}
+    //libff::leave_block("cpu reduce sum");
+    //T acc = T::zero();
+    //unsigned int totalCount = 0;
+    //for (unsigned int i = 0; i < ranges.size(); i++)
+    //{
+    //    acc = acc + partial[i];
+    //    totalCount += counters[i];
+    //}
 
-    libff::enter_block("cpu multi exp with density");
-    auto tmp = libff::multi_exp_with_density<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
-    libff::leave_block("cpu multi exp with density");
-    tmp = tmp + acc;
+    //libff::enter_block("cpu multi exp with density");
+    //auto tmp = libff::multi_exp_with_density<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
+    //libff::leave_block("cpu multi exp with density");
+    //tmp = tmp + acc;
     libff::leave_block("cpu Process scalar vector");
 
     //printf("max_depth = %d, min_depth=%d\n", max_depth, min_depth);
@@ -155,7 +158,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
       const int blocks = (max_depth + local_instances - 1) / local_instances;
       unsigned int c = config.multi_exp_c == 0 ? 16 : config.multi_exp_c;
       unsigned int chunks = config.num_threads;
-      chunks = (254 + c - 1) / c;
+      chunks = 1;//(254 + c - 1) / c;
       const int instances = gpu::BUCKET_INSTANCES;
       const int length = vec.values.size();
 
@@ -312,7 +315,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
 
     /***********end alt_bn128_g1 gpu reduce sum*****************/
 
-    return tmp;
+    //return tmp;
 }
 
 template<typename T, typename FieldT, libff::multi_exp_method Method>
@@ -393,9 +396,9 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
 
 
     libff::enter_block("cpu reduce");
-#ifdef MULTICORE
-#pragma omp parallel for
-#endif
+//#ifdef MULTICORE
+//#pragma omp parallel for
+//#endif
     for (size_t j = 0; j < ranges.size(); j++)
     {
         T result = T::zero();
@@ -411,39 +414,39 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
             else if (scalar == one)
             {
 #ifdef USE_MIXED_ADDITION
-                result = result.mixed_add(value_it);
+                //result = result.mixed_add(value_it);
 #else
 								//result.resize_gpu();
 								//value_it[i].resize_gpu();
-                result = result + value_it[i];
+                //result = result + value_it[i];
                 //result = result.gpu_add(value_it[i]);
 #endif
                 //++num_add;
             }
             else
             {
-                density[i] = true;
-                bn_exponents[i] = scalar.as_bigint();
-                ++count;
+                //density[i] = true;
+                //bn_exponents[i] = scalar.as_bigint();
+                //++count;
                 //++num_other;
             }
         }
-        partial[j] = result; 
-        counters[j] = count;
+        //partial[j] = result; 
+        //counters[j] = count;
     }
 
-    T acc = T::zero();
-    unsigned int totalCount = 0;
-    for (unsigned int i = 0; i < ranges.size(); i++)
-    {
-        acc = acc + partial[i];
-        totalCount += counters[i];
-    }
+    //T acc = T::zero();
+    //unsigned int totalCount = 0;
+    //for (unsigned int i = 0; i < ranges.size(); i++)
+    //{
+    //    acc = acc + partial[i];
+    //    totalCount += counters[i];
+    //}
     libff::leave_block("cpu reduce");
-    libff::enter_block("multi exp with density");
+    //libff::enter_block("multi exp with density");
 
-    auto tmp = acc + libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
-    libff::leave_block("multi exp with density");
+    //auto cpu_tmp = acc + libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
+    //libff::leave_block("multi exp with density");
 
     /***********start alt_bn128_g2 gpu reduce sum*****************/
     if(true){
@@ -612,7 +615,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
     }
 
     libff::leave_block("Process scalar vector");
-    return tmp;
+    //return tmp;
 }
 
 template<typename T, typename FieldT, libff::multi_exp_method Method>
