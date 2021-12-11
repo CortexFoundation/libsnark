@@ -33,7 +33,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
                                     std::vector<libff::bigint<FieldT::num_limbs>>& scratch_exponents,
                                     const Config& config)
 {
-    libff::enter_block("Process scalar vector");
+    //libff::enter_block("Process scalar vector");
     auto index_it = vec.indices.begin();
     auto value_it = vec.values.begin();
 
@@ -47,11 +47,12 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
     const size_t scalar_size = std::distance(scalar_start, scalar_end);
     const size_t scalar_length = vec.indices.size();
 
-    libff::enter_block("allocate density memory");
+    //libff::enter_block("allocate density memory");
     std::vector<bool> density(scalar_length);
-    libff::leave_block("allocate density memory");
+    //libff::leave_block("allocate density memory");
 
     std::vector<libff::bigint<FieldT::num_limbs>>& bn_exponents = scratch_exponents;
+    //std::vector<libff::bigint<FieldT::num_limbs>> bn_exponents(scratch_exponents.size());
     if (bn_exponents.size() < scalar_length)
     {
         bn_exponents.resize(scalar_length);
@@ -59,7 +60,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
 
     auto ranges = libsnark::get_cpu_ranges(0, scalar_length);
 
-    libff::enter_block("find max index");
+    //libff::enter_block("find max index");
     std::vector<unsigned int> partial_max_indices(ranges.size(), 0xffffffff);
 #ifdef MULTICORE
     #pragma omp parallel for
@@ -87,61 +88,25 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
             break;
         }
     }
-    libff::leave_block("find max index");
+    //libff::leave_block("find max index");
 
     ranges = get_cpu_ranges(0, actual_max_idx);
 
-    std::vector<T> partial(ranges.size(), T::zero());
-    std::vector<unsigned int> counters(ranges.size(), 0);
+    //std::vector<T> partial(ranges.size(), T::zero());
+    //std::vector<unsigned int> counters(ranges.size(), 0);
     //libff::enter_block("cpu reduce sum");
     int max_depth = 0, min_depth = 30130;
     for(int i = 0; i < ranges.size(); i++){
       max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
     }
-    for (size_t j = 0; j < ranges.size(); j++)
-    {
-        T result = T::zero();
-        unsigned int count = 0;
-        for (unsigned int i = ranges[j].first; i < ranges[j].second; i++)
-        {
-            const FieldT scalar = scalar_start[index_it[i]];
-            if (scalar == zero)
-            {
-                // do nothing
-                //++num_skip;
-            }
-            else if (scalar == one)
-            {
-                //result = result + value_it[i];
-                //++num_add;
-            }
-            else
-            {
-                //density[i] = true;
-                //bn_exponents[i] = scalar.as_bigint();
-                //++count;
-                //++num_other;
-            }
-        }
-        ///partial[j] = result; 
-        //counters[j] = count;
-    }
 
-    T acc = T::zero();
-    unsigned int totalCount = 0;
-    for (unsigned int i = 0; i < ranges.size(); i++)
-    {
-        acc = acc + partial[i];
-        totalCount += counters[i];
-    }
-
-    libff::leave_block("cpu Process scalar vector");
+    //libff::leave_block("cpu Process scalar vector");
 
     //printf("max_depth = %d, min_depth=%d\n", max_depth, min_depth);
     /***********start alt_bn128_g1 gpu reduce sum*****************/
     if(true){
-      libff::enter_block("call gpu");
-      libff::enter_block("gpu init");
+      //libff::enter_block("call gpu");
+      //libff::enter_block("gpu init");
       const int local_instances = BlockDepth * 64;
       const int blocks = (max_depth + local_instances - 1) / local_instances;
       unsigned int c = config.multi_exp_c == 0 ? 16 : config.multi_exp_c;
@@ -156,7 +121,15 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
       const int ranges_size = ranges.size();
       const int values_size = vec.values.size();
       const int indices_size = vec.indices.size();
-      {
+
+      static uint32_t *d_counters, *d_counters2;
+      static size_t* d_index_it;
+      static uint32_t *d_firsts, *d_seconds;
+      static int* gpu_bucket_counters = nullptr, *gpu_starts = nullptr, *gpu_indexs, *gpu_ids, *gpu_instance_bucket_ids;
+      static char *d_density, *flags;
+      static gpu::gpu_buffer max_value, dmax_value, d_bn_exponents, h_bn_exponents, d_modulus, d_field_modulus;
+
+      if(gpu_bucket_counters == nullptr){
         h_values.init_host(values_size);
         d_values.init(values_size);
         h_scalars.init_host(scalar_size);
@@ -175,14 +148,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
           d_block_sums2[i].init((1<<c) / 64/64);
         }
       }
-
-      static uint32_t *d_counters, *d_counters2;
-      static size_t* d_index_it;
-      static uint32_t *d_firsts, *d_seconds;
-      static int* gpu_bucket_counters = nullptr, *gpu_starts = nullptr, *gpu_indexs, *gpu_ids, *gpu_instance_bucket_ids;
-      static char *d_density, *flags;
-      static gpu::gpu_buffer max_value, dmax_value, d_bn_exponents, h_bn_exponents, d_modulus, d_field_modulus;
-      {
+      if(gpu_bucket_counters == nullptr){
         gpu::gpu_malloc((void**)&d_counters, ranges_size  * blocks * sizeof(uint32_t));
         gpu::gpu_malloc((void**)&d_counters2, ranges_size  * sizeof(uint32_t));
         gpu::gpu_malloc((void**)&d_index_it, indices_size * sizeof(size_t));
@@ -192,7 +158,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
         gpu::gpu_malloc((void**)&gpu_starts, ((1<<c)+1) * sizeof(int) * chunks * 2);
         gpu::gpu_malloc((void**)&gpu_indexs, (1<<c) * sizeof(int) * chunks * 2);
         gpu::gpu_malloc((void**)&gpu_ids, ((1<<c)+1) * sizeof(int) * chunks);
-        gpu::gpu_malloc((void**)&gpu_instance_bucket_ids, length * sizeof(int) * chunks);
+        gpu::gpu_malloc((void**)&gpu_instance_bucket_ids, (length+1) * sizeof(int) * chunks);
         gpu::gpu_malloc((void**)&flags, scalar_size * sizeof(char));
         max_value.resize_host(1);
         dmax_value.resize(1);
@@ -251,11 +217,11 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
       copy_field(zero, d_field_zero, 0);
       copy_field(one, d_field_one, 0);
 
-      gpu::init_error_report();
-      gpu::warm_up();
-      libff::leave_block("gpu init");
+      //gpu::init_error_report();
+      //gpu::warm_up();
+      //libff::leave_block("gpu init");
 
-      libff::enter_block("gpu reduce sum");
+      //libff::enter_block("gpu reduce sum");
       gpu::alt_bn128_g1_reduce_sum_one_range(
           d_values, 
           d_scalars, 
@@ -292,17 +258,25 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
 
       T gpu_acc;
       copy_back(gpu_acc, d_partial, 0);
-      libff::leave_block("gpu reduce sum");
 
-      libff::enter_block("gpu multi exp with density");
-      auto exp_out = libff::multi_exp_with_density_gpu<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config, d_values, d_density, d_bn_exponents, dmax_value, d_modulus, d_t_zero, d_values2, d_buckets, d_buckets2, d_block_sums, d_block_sums2, gpu_bucket_counters, gpu_starts, gpu_indexs, gpu_ids, gpu_instance_bucket_ids);
-      auto tmp = gpu_acc + exp_out;
       //d_bn_exponents.copy_to_host(h_bn_exponents);
       //for(int i = 0; i < bn_exponents.size(); i++){
       //  memcpy(bn_exponents[i].data, h_bn_exponents.ptr + i, 32);
       //}
-      libff::leave_block("gpu multi exp with density");
-      libff::leave_block("call gpu");
+      //std::vector<char> h_density(density.size());
+      //gpu::copy_gpu_to_cpu(h_density.data(), d_density, density.size());
+      //for(int i = 0 ;i < density.size(); i++){
+      //  density[i] = (h_density[i] == 1);
+      //}
+      //libff::leave_block("gpu reduce sum");
+
+      //libff::enter_block("gpu multi exp with density");
+      T exp_out;
+      //exp_out = libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
+      exp_out = libff::multi_exp_with_density_gpu<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config, d_values, d_density, d_bn_exponents, dmax_value, d_modulus, d_t_zero, d_values2, d_buckets, d_buckets2, d_block_sums, d_block_sums2, gpu_bucket_counters, gpu_starts, gpu_indexs, gpu_ids, gpu_instance_bucket_ids);
+      auto tmp = gpu_acc + exp_out;
+      //libff::leave_block("gpu multi exp with density");
+      //libff::leave_block("call gpu");
 
       if(false){
         d_values.release();
@@ -351,7 +325,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
                                     std::vector<libff::bigint<FieldT::num_limbs>>& scratch_exponents,
                                     const Config& config)
 {
-    libff::enter_block("Process scalar vector");
+    //libff::enter_block("Process scalar vector");
     auto index_it = vec.indices.begin();
     auto value_it = vec.values.begin();
 
@@ -365,19 +339,22 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
     const size_t scalar_size = std::distance(scalar_start, scalar_end);
     const size_t scalar_length = vec.indices.size();
 
-    libff::enter_block("allocate density memory");
+    //libff::enter_block("allocate density memory");
     std::vector<bool> density(scalar_length);
-    libff::leave_block("allocate density memory");
+    //libff::leave_block("allocate density memory");
 
-    std::vector<libff::bigint<FieldT::num_limbs>>& bn_exponents = scratch_exponents;
+    //std::vector<libff::bigint<FieldT::num_limbs>>& bn_exponents = scratch_exponents;
+    std::vector<libff::bigint<FieldT::num_limbs>> bn_exponents(scratch_exponents.size());
+    int bn_exponents_size = bn_exponents.size();
     if (bn_exponents.size() < scalar_length)
     {
         bn_exponents.resize(scalar_length);
+        bn_exponents_size = scalar_length;
     }
 
     auto ranges = libsnark::get_cpu_ranges(0, scalar_length);
 
-    libff::enter_block("find max index");
+    //libff::enter_block("find max index");
     std::vector<unsigned int> partial_max_indices(ranges.size(), 0xffffffff);
     //printf("ranges.size = %d\n", ranges.size());
 #ifdef MULTICORE
@@ -406,12 +383,12 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
             break;
         }
     }
-    libff::leave_block("find max index");
+    //libff::leave_block("find max index");
 
     ranges = get_cpu_ranges(0, actual_max_idx);
 
-    std::vector<T> partial(ranges.size(), T::zero());
-    std::vector<unsigned int> counters(ranges.size(), 0);
+    //std::vector<T> partial(ranges.size(), T::zero());
+    //std::vector<unsigned int> counters(ranges.size(), 0);
     int max_depth = 0, min_depth = 1000000;
     for(int i = 0; i < ranges.size(); i++){
       int depth = ranges[i].second - ranges[i].first;
@@ -422,8 +399,8 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
 
     /***********start alt_bn128_g2 gpu reduce sum*****************/
     if(true){
-      libff::enter_block("call gpu");
-      libff::enter_block("gpu init");
+      //libff::enter_block("call gpu");
+      //libff::enter_block("gpu init");
       const int length = vec.values.size();
       static gpu::alt_bn128_g2 h_values, d_values, d_partial, d_t_zero, d_t_one;
       static gpu::Fp_model h_scalars, d_scalars, d_field_zero, d_field_one, h_non_residue, d_non_residue;
@@ -439,7 +416,15 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
       static std::vector<gpu::alt_bn128_g2> d_values2(chunks), d_buckets(chunks), d_buckets2(chunks), d_block_sums(chunks), d_block_sums2(chunks);
 
       //printf("ranges_size = %d, values_size = %d, indices_size = %d\n", ranges_size, values_size, indices_size);
-      {
+
+      static uint32_t *d_counters, *d_counters2;
+      static size_t* d_index_it;
+      static uint32_t *d_firsts, *d_seconds;
+      static int* gpu_bucket_counters = nullptr, *gpu_starts = nullptr, *gpu_indexs, *gpu_ids, *gpu_instance_bucket_ids;
+      static char *d_density, *flags;
+      static gpu::gpu_buffer max_value, dmax_value, d_bn_exponents, h_bn_exponents, d_modulus, d_field_modulus;
+
+      if(gpu_bucket_counters == nullptr){
         h_values.init_host(values_size);
         d_values.init(values_size);
         h_scalars.init_host(scalar_size);
@@ -455,19 +440,11 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
           d_values2[i].init(length);
           d_buckets[i].init((1<<c) * instances);
           d_buckets2[i].init((1<<c));
-          d_block_sums[i].init((1<<c) / 64);
-          d_block_sums2[i].init((1<<c) / 64/64);
+          d_block_sums[i].init((1<<c) / 32);
+          d_block_sums2[i].init((1<<c) / 32/32);
         }
       }
-
-      static uint32_t *d_counters, *d_counters2;
-      static size_t* d_index_it;
-      static uint32_t *d_firsts, *d_seconds;
-      static int* gpu_bucket_counters = nullptr, *gpu_starts = nullptr, *gpu_indexs, *gpu_ids, *gpu_instance_bucket_ids;
-      static char *d_density, *flags;
-      static gpu::gpu_buffer max_value, dmax_value, d_bn_exponents, h_bn_exponents, d_modulus, d_field_modulus;
-
-      {
+      if(gpu_bucket_counters == nullptr){
         int int_size = ranges_size * max_depth + ranges_size + ranges_size + ranges_size + (1<<c) * chunks + ((1<<c) + 1) * chunks * 2 
           + (1<<c)* chunks * 2 +  ((1<<c) + 1) * chunks + length * chunks; 
         //gpu::gpu_malloc((void**)&d_counters, int_size * sizeof(int));
@@ -486,7 +463,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
         //gpu_indexs = gpu_starts + ((1<<c)+1) * chunks*2;
         gpu::gpu_malloc((void**)&gpu_ids, ((1<<c)+1) * sizeof(int) * chunks);
         //gpu_ids = gpu_indexs + (1<<c) * chunks * 2;
-        gpu::gpu_malloc((void**)&gpu_instance_bucket_ids, length * sizeof(int) * chunks);
+        gpu::gpu_malloc((void**)&gpu_instance_bucket_ids, (length+1) * sizeof(int) * chunks);
         //gpu_instance_bucket_ids = gpu_ids + ((1<<c)+1) * chunks;
         gpu::gpu_malloc((void**)&d_index_it, indices_size * sizeof(size_t));
         max_value.resize_host(1);
@@ -504,8 +481,8 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
         }
         gpu::gpu_malloc((void**)&d_density, density.size() * sizeof(char));
         gpu::gpu_malloc((void**)&flags, scalar_size * sizeof(char));
-        d_bn_exponents.resize(bn_exponents.size());
-        h_bn_exponents.resize_host(bn_exponents.size());
+        d_bn_exponents.resize(bn_exponents_size);
+        h_bn_exponents.resize_host(bn_exponents_size);
         gpu::copy_cpu_to_gpu(d_index_it, vec.indices.data(), sizeof(size_t) * indices_size);
         gpu::copy_cpu_to_gpu(d_firsts, firsts.data(), sizeof(uint32_t) * ranges_size);
         gpu::copy_cpu_to_gpu(d_seconds, seconds.data(), sizeof(uint32_t) * ranges_size);
@@ -554,10 +531,10 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
       memcpy(h_non_residue.mont_repr_data, value_it[0].X.non_residue.mont_repr.data, 32);
       d_non_residue.copy_from_cpu(h_non_residue);
 
-      gpu::init_error_report();
-      gpu::warm_up();
-      libff::leave_block("gpu init");
-      libff::enter_block("gpu reduce sum");
+      //gpu::init_error_report();
+      //gpu::warm_up();
+      //libff::leave_block("gpu init");
+      //libff::enter_block("gpu reduce sum");
       gpu::alt_bn128_g2_reduce_sum_one_range(
           d_values, 
           d_scalars, 
@@ -585,9 +562,9 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
       T gpu_acc;
       copy_back(gpu_acc, d_partial, 0);
 
-      libff::leave_block("gpu reduce sum");
+      //libff::leave_block("gpu reduce sum");
 
-      libff::enter_block("gpu multi exp with density");
+      //libff::enter_block("gpu multi exp with density");
 
       //auto tmp = gpu_acc + 
       //d_bn_exponents.copy_to_host(h_bn_exponents);
@@ -636,9 +613,9 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
         fclose(fp5);
       }
 
-      libff::leave_block("gpu multi exp with density");
-      libff::leave_block("Process scalar vector");
-      libff::leave_block("call gpu");
+      //libff::leave_block("gpu multi exp with density");
+      //libff::leave_block("Process scalar vector");
+      //libff::leave_block("call gpu");
       //release gpu memory
       if(false){
         d_values.release();
@@ -674,7 +651,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
       return tmp;
     }
 
-    libff::leave_block("Process scalar vector");
+    //libff::leave_block("Process scalar vector");
     //return tmp;
 }
 
@@ -748,7 +725,7 @@ T kc_multi_exp_with_mixed_addition(const sparse_vector<T> &vec,
     std::vector<unsigned int> counters(ranges.size(), 0);
 
 #ifdef MULTICORE
-    //#pragma omp parallel for
+    #pragma omp parallel for
 #endif
     for (size_t j = 0; j < ranges.size(); j++)
     {
