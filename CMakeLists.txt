@@ -124,6 +124,13 @@ set(
   "${CMAKE_CXX_FLAGS} ${OPT_FLAGS}"
 )
 
+#set(CMAKE_C_FLAGS "-g ${CMAKE_C_FLAGS} -lcgbn_math -L/home/zkh/github/zion/3rd_party/CGBN -I/home/zkh/github/zion/3rd_party/CGBN/ -I/usr/local/cuda/include/ -L/usr/local/cuda/lib64/ -lcudart")
+#set(CMAKE_CXX_FLAGS "-g ${CMAKE_CXX_FLAGS} -lcgbn_math -L/home/zkh/github/zion/3rd_party/CGBN -I/home/zkh/github/zion/3rd_party/CGBN/ -I/home/zkh/github/zion/3rd_party/CGBN/include -I/usr/local/cuda/include/ -L/usr/local/cuda/lib64/ -lcudart")
+#
+#include_directories(/home/zkh/github/zion/3rd_party/CGBN)
+#include_directories(/home/zkh/github/zion/3rd_party/CGBN/include)
+#include_directories(/home/zkh/github/zion/3rd_party/CGBN/include/samples)
+
 # GMP
 find_path(GMP_INCLUDE_DIR NAMES gmp.h)
 find_library(GMP_LIBRARIES NAMES gmp libgmp)
