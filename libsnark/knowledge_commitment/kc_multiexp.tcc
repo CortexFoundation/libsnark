@@ -165,7 +165,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
       d_values.resize(values_size);
       h_scalars.resize_host(scalar_size);
       d_scalars.resize(scalar_size);
-      d_partial.resize(ranges_size * max_depth / 2);
+      d_partial.resize(ranges_size * gpu::REDUCE_BLOCKS_PER_RANGE * gpu::INSTANCES_PER_BLOCK);
       d_bn_exponents.resize(bn_exponents.size());
       h_bn_exponents.resize_host(bn_exponents.size());
       for(int i = 0; i < chunks; i++){
@@ -440,7 +440,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
       d_values.resize(values_size);
       h_scalars.resize_host(scalar_size);
       d_scalars.resize(scalar_size);
-      d_partial.resize(ranges_size * max_depth / 2);
+      d_partial.resize(ranges_size * gpu::REDUCE_BLOCKS_PER_RANGE * gpu::INSTANCES_PER_BLOCK);
       d_bn_exponents.resize(bn_exponents_size);
       h_bn_exponents.resize_host(bn_exponents_size);
       for(int i = 0; i < chunks; i++){
@@ -518,7 +518,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2(const sparse_vector<T> &vec,
       //  memcpy(bn_exponents[i].data, h_bn_exponents.ptr + i, 32);
       //}
       //std::vector<char> h_density(density.size());
-      //gpu::copy_gpu_to_cpu(h_density.data(), d_density, density.size());
+      //gpu::copy_gpu_to_cpu(h_density.data(), d_density.ptr, density.size());
       //for(int i = 0; i < density.size(); i++){
       //  density[i] = (h_density[i] == 1);
       //}
