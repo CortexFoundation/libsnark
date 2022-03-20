@@ -145,7 +145,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
 
     //libff::enter_block("gpu malloc...");
       if(first_init){
-	gpu::create_stream(&stream);
+          gpu::create_stream(&stream);
         d_t_zero.init(1);
         d_t_one.init(1);
         d_field_zero.init(1);
@@ -761,8 +761,8 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       static gpu::gpu_buffer max_value, dmax_value, d_bn_exponents, h_bn_exponents, d_modulus, d_field_modulus;
       static bool first_init = true;
       static cudaStream_t stream;
-      gpu::Fp_model d_one, d_p;
-      gpu::Fp_model2 d_a;
+      static gpu::Fp_model d_one, d_p;
+      static gpu::Fp_model2 d_a;
 
     //libff::enter_block("gpu malloc...");
       if(first_init){
@@ -1195,7 +1195,7 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
       static gpu::gpu_buffer max_value, dmax_value, d_bn_exponents, h_bn_exponents, d_modulus, d_field_modulus;
       static bool first_init = true;
       static cudaStream_t stream;
-      gpu::Fp_model d_one, d_p, d_a;
+      static gpu::Fp_model d_one, d_p, d_a;
 
     //libff::enter_block("gpu malloc...");
       if(first_init){
