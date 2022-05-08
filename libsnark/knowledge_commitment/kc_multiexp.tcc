@@ -1151,14 +1151,87 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
 
     std::vector<T> partial(ranges.size(), T::zero());
     std::vector<unsigned int> counters(ranges.size(), 0);
+
+    static int first = 0;
+    std::set<int> s;
+#ifdef MULTICORE
+    #pragma omp parallel for
+#endif
+    for (size_t j = 0; j < ranges.size(); j++)
+    {
+        T result = T::zero();
+        unsigned int count = 0;
+        for (unsigned int i = ranges[j].first; i < ranges[j].second; i++)
+        {
+            const FieldT scalar = scalar_start[index_it[i]];
+            if (scalar == zero)
+            {
+                // do nothing
+                //++num_skip;
+            }
+            else if (scalar == one)
+            {
+#ifdef USE_MIXED_ADDITION
+                result = result.mixed_add(value_it);
+#else
+								//result.resize_gpu();
+								//value_it[i].resize_gpu();
+                //T a = result;
+                //result = a + value_it[i];
+                if(false){
+                    ////printf("a:\n");
+                    //f(a, fpa);
+                    ////printf("b:\n");
+                    //f(value_it[i], fpb);
+                    ////printf("c:\n");
+                    //f(result, fpc);
+                }
+                if(false){
+                    //gpu::copy_cpu_to_gpu(done.mont_repr_data, value_it[0].pt.z.one().getUnit(), 32);
+                    //gpu::copy_cpu_to_gpu(dp.mont_repr_data, value_it[0].pt.z.getOp().p, 32);
+                    //gpu::copy_cpu_to_gpu(da.mont_repr_data, value_it[0].pt.a_.getUnit(), 32);
+
+                    //gpu::copy_cpu_to_gpu(dP.x.mont_repr_data, result.pt.x.getUnit(), 32);
+                    //gpu::copy_cpu_to_gpu(dP.y.mont_repr_data, result.pt.y.getUnit(), 32);
+                    //gpu::copy_cpu_to_gpu(dP.z.mont_repr_data, result.pt.z.getUnit(), 32);
+                    //gpu::copy_cpu_to_gpu(dQ.x.mont_repr_data, value_it[i].pt.x.getUnit(), 32);
+                    //gpu::copy_cpu_to_gpu(dQ.y.mont_repr_data, value_it[i].pt.y.getUnit(), 32);
+                    //gpu::copy_cpu_to_gpu(dQ.z.mont_repr_data, value_it[i].pt.z.getUnit(), 32);
+                    //gpu::gpu_mcl_ect_add(dR, dP, dQ, done, dp, da, specialA_, model_, rp);  
+                    //uint64_t rx[4], ry[4], rz[4];
+                    //gpu::copy_gpu_to_cpu(rx, dR.x.mont_repr_data, 32);
+                    //gpu::copy_gpu_to_cpu(ry, dR.y.mont_repr_data, 32);
+                    //gpu::copy_gpu_to_cpu(rz, dR.z.mont_repr_data, 32);
+
+                    //result.pt.x.copy(rx);
+                    //result.pt.y.copy(ry);
+                    //result.pt.z.copy(rz);
+                }
+                //first += 1;
+                //result = result.gpu_add(value_it[i]);
+#endif
+                //++num_add;
+            }
+            else
+            {
+                density[i] = true;
+                bn_exponents[i] = scalar.as_bigint();
+                ++count;
+                //++num_other;
+            }
+        }
+        //partial[j] = result; 
+        counters[j] = count;
+    }
+
     //call gpu
     if(true){
 #ifdef MCL_GPU
 
-    int max_depth = 0, min_depth = 30130;
-    for(int i = 0; i < ranges.size(); i++){
-      max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
-    }
+        int max_depth = 0, min_depth = 30130;
+        for(int i = 0; i < ranges.size(); i++){
+            max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
+        }
 
       auto copy_t = [](const T& src, gpu::mcl_bn128_g1& dst, const int offset){
         gpu::copy_cpu_to_gpu(dst.x.mont_repr_data + offset, src.pt.x.getUnit(), 32);
@@ -1309,25 +1382,40 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
       T gpu_acc;
       copy_back(gpu_acc, d_partial, 0);
 
-      d_bn_exponents.copy_to_host(h_bn_exponents);
+      if(false){
+          d_bn_exponents.copy_to_host(h_bn_exponents);
+          for(int i = 0; i < bn_exponents.size(); i++){
+              if(memcmp(bn_exponents[i].data, h_bn_exponents.ptr + i, 32) != 0){
+                  printf("compare bn_exponents %d failed..\n", i);
+                  break;
+              }
+              //memcpy(bn_exponents[i].data, h_bn_exponents.ptr + i, 32);
+          }
+          std::vector<char> h_density(density.size());
+          gpu::copy_gpu_to_cpu(h_density.data(), d_density.ptr, density.size());
+
+          for(int i = 0 ;i < density.size(); i++){
+              bool tmp = h_density[i] == 1;
+              if(density[i] != tmp){
+                  printf("compare density %d failed...\n", i);
+                  break;
+              }
+              density[i] = (h_density[i] == 1);
+          }
+      }
+
       for(int i = 0; i < bn_exponents.size(); i++){
-        memcpy(bn_exponents[i].data, h_bn_exponents.ptr + i, 32);
-        //if(memcmp(bn_exponents[i].data, h_bn_exponents.ptr + i, 32) != 0){
-        //    printf("compare bn_exponents %d failed..\n", i);
-        //    break;
-        //}
+        memcpy(h_bn_exponents.ptr + i, bn_exponents[i].data, 32);
       }
+      d_bn_exponents.copy_from_host(h_bn_exponents);
+
       std::vector<char> h_density(density.size());
-      gpu::copy_gpu_to_cpu(h_density.data(), d_density.ptr, density.size());
-      for(int i = 0 ;i < density.size(); i++){
-        //bool tmp = h_density[i] == 1;
-        //if(density[i] != tmp){
-        //    printf("compare density %d failed...\n", i);
-        //    break;
-        //}
-        density[i] = (h_density[i] == 1);
+      for(int i = 0; i<density.size(); i++){
+        h_density[i] = density[i] ? 1 : 0;
       }
-      //auto exp_out = libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
+      gpu::copy_cpu_to_gpu(d_density.ptr, h_density.data(), density.size());
+
+      //auto exp_out = libff::multi_exp_with_density_test<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
       //libff::enter_block("gpu multi exp with density");
       T exp_out = libff::multi_exp_with_density_gpu_mcl<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config, d_values, (char*)d_density.ptr, d_bn_exponents, dmax_value, d_modulus, d_t_zero, d_values2, d_buckets, d_buckets2, d_block_sums, d_block_sums2, (int*)d_bucket_counters.ptr, (int*)d_starts.ptr, (int*)d_indexs.ptr, (int*)d_ids.ptr, (int*)d_instance_bucket_ids.ptr, d_one, d_p, d_a, stream);
       
