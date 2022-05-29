@@ -895,9 +895,9 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       //  }
       //  //memcpy(bn_exponents[i].data, h_bn_exponents.ptr + i, 32);
       //}
-      for(int i = 0; i < bn_exponents.size(); i++){
-        memcpy(h_bn_exponents.ptr + i, bn_exponents[i].data, 32);
-      }
+      //for(int i = 0; i < bn_exponents.size(); i++){
+      //  memcpy(h_bn_exponents.ptr + i, bn_exponents[i].data, 32);
+      //}
       //d_bn_exponents.copy_from_host(h_bn_exponents);
 
       //std::vector<char> h_density(density.size());
