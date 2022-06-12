@@ -320,86 +320,128 @@ static void butterfly_4(std::vector<FieldT>& out, const std::vector<FieldT>& twi
 }
 
 template<typename FieldT>
+void copy_field_to(const FieldT& src, gpu::Fp_model& dst, const int offset){
+    memcpy(dst.mont_repr_data + offset, src.mont_repr.data, 32);
+};
+
+template<typename FieldT>
+struct GpuData{
+    std::vector<std::vector<libfqfft::Info>> infos;
+    gpu::Fp_model h_itwiddles, h_ftwiddles, d_itwiddles, d_ftwiddles;
+    gpu::gpu_buffer d_modulus, h_max_values, d_max_values;
+    gpu::Fp_model h_in, d_in, d_out;
+    std::vector<int> itwiddle_offsets, ftwiddle_offsets;
+    GpuData(const std::shared_ptr<libfqfft::evaluation_domain<FieldT>> domain){
+        h_max_values.resize_host(1);
+        d_max_values.resize(1);
+        for(int i = 0; i < BITS/32; i++){
+            h_max_values.ptr->_limbs[i] = 0xffffffff;
+        }
+        d_max_values.copy_from_host(h_max_values);
+        d_modulus.resize(1);
+
+        auto copy_twiddle = [&](const std::vector<std::vector<FieldT>>& twiddles, gpu::Fp_model& h_twiddles, gpu::Fp_model& d_twiddles, std::vector<int>& twiddle_offsets){
+            int total_twiddle = 0;
+            for(int level = 0; level < twiddles.size(); level++){
+                total_twiddle += twiddles[level].size();
+            }
+            h_twiddles.resize_host(total_twiddle);
+            d_twiddles.resize(total_twiddle);
+
+            total_twiddle = 0;
+            int twiddle_offset = 0;
+            twiddle_offsets.resize(twiddles.size());
+            for(int level = 0; level < twiddles.size(); level++){
+                for(size_t i = 0; i < twiddles[level].size(); i++){
+                    copy_field_to(twiddles[level][i], h_twiddles, total_twiddle++);
+                }
+                twiddle_offsets[level] = twiddle_offset;
+                twiddle_offset += twiddles[level].size();
+            }
+            d_twiddles.copy_from_cpu(h_twiddles);
+        };
+        copy_twiddle(domain->data.iTwiddles, h_itwiddles, d_itwiddles, itwiddle_offsets);
+        copy_twiddle(domain->data.fTwiddles, h_ftwiddles, d_ftwiddles, ftwiddle_offsets);
+    }
+    ~GpuData(){
+        h_max_values.release_host();
+        d_max_values.release();
+        d_modulus.release();
+        h_itwiddles.release_host();
+        h_ftwiddles.release_host();
+        d_itwiddles.release();
+        d_ftwiddles.release();
+        d_in.release();
+    }
+};
+
+template<typename FieldT>
 void CallIFFT(
         const std::shared_ptr<libfqfft::evaluation_domain<FieldT>> domain,
         std::vector<FieldT>& in, 
-        bool inverse, bool need_mul_scalar){
-    auto copy_field_to = [](const FieldT& src, gpu::Fp_model& dst, const int offset){
-        memcpy(dst.mont_repr_data + offset, src.mont_repr.data, 32);
-    };
+        GpuData<FieldT>& gpu_data,
+        bool inverse, bool need_mul_scalar, bool need_get_infos, bool calc_coset=false){
     auto copy_field_back = [](FieldT& dst, const gpu::Fp_model& src, const int offset){
         memcpy(dst.mont_repr.data, src.mont_repr_data + offset, 32);
     };
 
     //double t0 = omp_get_wtime();
-    std::vector<FieldT> out(in.size());
-    std::vector<std::vector<libfqfft::Info>> infos;
-    domain->fft_internal(in, infos);
+    //static std::vector<std::vector<libfqfft::Info>> infos;
+    //if(need_get_infos){
+    //    infos.clear();
+    //    domain->fft_internal(in, infos);
+    //}
     //double t1 = omp_get_wtime();
     //printf("fft_internal: %f\n", t1-t0);
 
-    static gpu::Fp_model h_copy, h_in, d_in, h_out, d_out, h_twiddles, d_twiddles;
-    static gpu::gpu_buffer d_modulus, h_max_values, d_max_values;
+    //static gpu::Fp_model h_itwiddles, d_itwiddles, h_ftwiddles, d_ftwiddles;
+    //static gpu::gpu_buffer d_modulus, h_max_values, d_max_values;
     uint64_t const_inv = in[0].inv;
-    h_in.resize_host(in.size());
+    gpu_data.h_in.resize_host(in.size());
+    gpu_data.d_in.resize(in.size());
+    gpu_data.d_out.resize(in.size());
+#ifdef debug
+    static gpu::Fp_model h_copy, h_out; 
     h_copy.resize_host(in.size());
-    d_in.resize(in.size());
-    d_out.resize(in.size());
-    d_modulus.resize(1);
-    h_max_values.resize_host(1);
-    d_max_values.resize(1);
-    for(int i = 0; i < BITS/32; i++){
-        h_max_values.ptr->_limbs[i] = 0xffffffff;
-    }
-    d_max_values.copy_from_host(h_max_values);
-    gpu::copy_cpu_to_gpu(d_modulus.ptr->_limbs, in[0].get_modulus().data, 32);
+    std::vector<FieldT> out(in.size());
     auto f=[](const FieldT& a){
         for(int i = 0; i < 4; i++){
             printf("%lu ", a.mont_repr.data[i]);
         }
         printf("\n");
     };
+#endif
     //printf("modulus:");
     //f(in[0].get_modulus());
     //printf("\n");
-
-    auto twiddles =  inverse ? domain->data.iTwiddles : domain->data.fTwiddles;
-    int total_twiddle = 0;
-    for(int level = 0; level < twiddles.size(); level++){
-        total_twiddle += twiddles[level].size();
-    }
-    h_twiddles.resize_host(total_twiddle);
-    d_twiddles.resize(total_twiddle);
-
     for(size_t i = 0; i < in.size(); i++){
-        copy_field_to(in[i], h_in, i);
+        copy_field_to(in[i], gpu_data.h_in, i);
     }
-    total_twiddle = 0;
-    std::vector<int> twiddle_offsets(infos.size(), 0);
-    int twiddle_offset = 0;
-    for(int level = 0; level < twiddles.size(); level++){
-        for(size_t i = 0; i < twiddles[level].size(); i++){
-            copy_field_to(twiddles[level][i], h_twiddles, total_twiddle++);
-        }
-        twiddle_offsets[level] = twiddle_offset;
-        twiddle_offset += twiddles[level].size();
-    }
-    d_in.copy_from_cpu(h_in);
-    d_twiddles.copy_from_cpu(h_twiddles);
+    gpu_data.d_in.copy_from_cpu(gpu_data.h_in);
 
+    auto& twiddles =  inverse ? domain->data.iTwiddles : domain->data.fTwiddles;
+    //static std::vector<int> itwiddle_offsets(infos.size()), ftwiddle_offsets(infos.size());
+    static gpu::gpu_meta d_in_offsets, d_out_offsets, d_lengths, d_radixs, d_strides;
+
+    gpu::Fp_model& d_twiddles = inverse ? gpu_data.d_itwiddles : gpu_data.d_ftwiddles;
+    std::vector<int>& twiddle_offsets = inverse ? gpu_data.itwiddle_offsets : gpu_data.ftwiddle_offsets;
+
+    auto& infos = gpu_data.infos;
     int max_len = infos[0].size();
     for(int i = 1; i < infos.size(); i++){
         if(max_len < infos[i].size()){
             max_len = infos[i].size();
         }
     }
+
     std::vector<int> in_offsets(max_len), out_offsets(max_len), lengths(max_len), radixs(max_len), strides(max_len);
-    gpu::gpu_meta d_in_offsets, d_out_offsets, d_lengths, d_radixs, d_strides;
-    d_in_offsets.resize(max_len*sizeof(int));
-    d_out_offsets.resize(max_len*sizeof(int));
-    d_lengths.resize(max_len*sizeof(int));
-    d_radixs.resize(max_len*sizeof(int));
-    d_strides.resize(max_len*sizeof(int));
+    if(true){
+        d_in_offsets.resize(max_len*sizeof(int));
+        d_out_offsets.resize(max_len*sizeof(int));
+        d_lengths.resize(max_len*sizeof(int));
+        d_radixs.resize(max_len*sizeof(int));
+        d_strides.resize(max_len*sizeof(int));
+    }
 
     //double t2 = omp_get_wtime();
     //printf("befor calc time:%f\n", t2-t1);
@@ -408,40 +450,43 @@ void CallIFFT(
         int max_len = 0, min_len = infos[i][0].length;
         const uint32_t stage_length = domain->data.stages[i].length;
         const uint32_t radix = domain->data.stages[i].radix;
-        for(int j = 0; j < info_len; j++){
-            in_offsets[j] = infos[i][j].in_offset;
-            out_offsets[j] = infos[i][j].out_offset;
-            lengths[j] = infos[i][j].length;
-            radixs[j] = infos[i][j].radix;
-            strides[j] = infos[i][j].stride;
-            if(max_len < lengths[j]) max_len = lengths[j];
-            if(min_len > lengths[j]) min_len = lengths[j];
-        }
-        //printf("%d max_len = %d, min_len = %d, info_len = %d, radix=%d\n", i, max_len, min_len, info_len, radix);
-        //double tt0 = omp_get_wtime();
-        {
-            gpu::copy_cpu_to_gpu(d_in_offsets.ptr, in_offsets.data(), info_len*sizeof(int));
-            gpu::copy_cpu_to_gpu(d_out_offsets.ptr, out_offsets.data(), info_len*sizeof(int));
-            gpu::copy_cpu_to_gpu(d_lengths.ptr, lengths.data(), info_len*sizeof(int));
-            gpu::copy_cpu_to_gpu(d_radixs.ptr, radixs.data(), info_len*sizeof(int));
-            gpu::copy_cpu_to_gpu(d_strides.ptr, strides.data(), info_len*sizeof(int));
+        if(true){
+            for(int j = 0; j < info_len; j++){
+                in_offsets[j] = infos[i][j].in_offset;
+                out_offsets[j] = infos[i][j].out_offset;
+                lengths[j] = infos[i][j].length;
+                radixs[j] = infos[i][j].radix;
+                strides[j] = infos[i][j].stride;
+                if(max_len < lengths[j]) max_len = lengths[j];
+                if(min_len > lengths[j]) min_len = lengths[j];
+            }
+            //printf("%d max_len = %d, min_len = %d, info_len = %d, radix=%d\n", i, max_len, min_len, info_len, radix);
+            //double tt0 = omp_get_wtime();
+            {
+                gpu::copy_cpu_to_gpu(d_in_offsets.ptr, in_offsets.data(), info_len*sizeof(int));
+                gpu::copy_cpu_to_gpu(d_out_offsets.ptr, out_offsets.data(), info_len*sizeof(int));
+                gpu::copy_cpu_to_gpu(d_lengths.ptr, lengths.data(), info_len*sizeof(int));
+                gpu::copy_cpu_to_gpu(d_radixs.ptr, radixs.data(), info_len*sizeof(int));
+                gpu::copy_cpu_to_gpu(d_strides.ptr, strides.data(), info_len*sizeof(int));
+            }
         }
         //double tt1 = omp_get_wtime();
         //printf("%d copy time = %f\n", i, tt1-tt0);
         if(stage_length == 1){
-            gpu::fft_copy(d_in, d_out, (int*)d_in_offsets.ptr, (int*)d_out_offsets.ptr, (int*)d_strides.ptr, info_len, radix);     
+            gpu::fft_copy(gpu_data.d_in, gpu_data.d_out, (int*)d_in_offsets.ptr, (int*)d_out_offsets.ptr, (int*)d_strides.ptr, info_len, radix);     
             //d_out.copy_to_cpu(h_copy);
         }
         if(radix == 2){
-            gpu::butterfly_2(d_out, d_twiddles, twiddle_offsets[i], (int*)d_strides.ptr, stage_length, (int*)d_out_offsets.ptr, info_len, d_max_values.ptr, d_modulus.ptr, const_inv); 
+            gpu::butterfly_2(gpu_data.d_out, d_twiddles, twiddle_offsets[i], (int*)d_strides.ptr, stage_length, (int*)d_out_offsets.ptr, info_len, gpu_data.d_max_values.ptr, gpu_data.d_modulus.ptr, const_inv); 
             //d_out.copy_to_cpu(h_in);
         }
         if(radix == 4){
-            gpu::butterfly_4(d_out, d_twiddles, twiddles[i].size(), twiddle_offsets[i], (int*)d_strides.ptr, stage_length, (int*)d_out_offsets.ptr, info_len, d_max_values.ptr, d_modulus.ptr, const_inv); 
+            gpu::butterfly_4(gpu_data.d_out, d_twiddles, twiddles[i].size(), twiddle_offsets[i], (int*)d_strides.ptr, stage_length, (int*)d_out_offsets.ptr, info_len, gpu_data.d_max_values.ptr, gpu_data.d_modulus.ptr, const_inv); 
             //d_out.copy_to_cpu(h_in);
         }
         //double tt2 = omp_get_wtime();
         //printf("%d calc time = %f\n", i, tt2-tt1);
+#ifdef debug
         if(false){
             for(int j = 0; j < infos[i].size(); j++){
                 int in_offset = infos[i][j].in_offset;
@@ -493,29 +538,68 @@ void CallIFFT(
                 }
             }
         }
+#endif
     }
     //double t3 = omp_get_wtime();
 
     static gpu::Fp_model h_sconst, d_sconst;
+    size_t m = domain->m;
     if(need_mul_scalar){
-        if(false){
+#ifdef debug
+        if(true){
             for(size_t i = 0; i < in.size(); i++){
-                copy_field_to(out[i], h_in, i);
+                copy_field_to(out[i], gpu_data.h_in, i);
             }
-            d_out.copy_from_cpu(h_in);
+            d_out.copy_from_cpu(gpu_data.h_in);
         }
+#endif
         h_sconst.resize_host(1);
         d_sconst.resize(1);
         const FieldT sconst = FieldT(domain->m).inverse();
         copy_field_to(sconst, h_sconst, 0);
         d_sconst.copy_from_cpu(h_sconst);
-        size_t m = domain->m;
-        gpu::alt_bn128_g1_elementwise_mul_scalar(d_out, d_sconst, m, d_modulus.ptr, const_inv);  
+        gpu::alt_bn128_g1_elementwise_mul_scalar(gpu_data.d_out, d_sconst, m, gpu_data.d_modulus.ptr, const_inv);  
     }
 
-    d_out.copy_to_cpu(h_in);
+    if(calc_coset){
+        static gpu::Fp_model h_one, d_one, h_g, d_g;
+        d_one.resize(1);
+        h_one.resize_host(1);
+        d_g.resize(1);
+        h_g.resize_host(1);
+
+        copy_field_to(FieldT::one(), h_one, 0);
+        d_one.copy_from_cpu(h_one);
+        copy_field_to(FieldT::multiplicative_generator, h_g, 0);
+        d_g.copy_from_cpu(h_g);
+        //call cpu
+        if(false){
+            gpu_data.d_out.copy_to_cpu(gpu_data.h_in);
+            for(size_t i = 0; i < in.size(); i++){
+                copy_field_back(in[i], gpu_data.h_in, i);
+            }
+            domain->cosetFFT(in, FieldT::multiplicative_generator);
+        }
+
+        gpu::multiply_by_coset_and_constant(gpu_data.d_out, m, d_g, d_one, d_one, gpu_data.d_modulus.ptr, const_inv, 64);
+
+        //verify 
+        if(false){
+            gpu_data.d_out.copy_to_cpu(gpu_data.h_in);
+            for(int i = 0; i < m; i++){
+                FieldT a;
+                copy_field_back(a, gpu_data.h_in, i);
+                if(in[i] != a){
+                    printf("compare %d failed\n", i);
+                    break;
+                }
+            }
+        }
+    }
+
+    gpu_data.d_out.copy_to_cpu(gpu_data.h_in);
     for(size_t i = 0; i < in.size(); i++){
-        copy_field_back(in[i], h_in, i);
+        copy_field_back(in[i], gpu_data.h_in, i);
     }
     //double t4 = omp_get_wtime();
     //printf("gpu time: %f %f\n", t3-t2, t4-t3);
@@ -590,9 +674,16 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
     }
     libff::leave_block("Compute evaluation of polynomials A, B, C on set S");
 
+    libff::enter_block("Compute the recursive Infos");
+    GpuData<FieldT> gpu_data(domain);
+    //gpu_data.infos.clear();
+    domain->fft_internal(aA, gpu_data.infos);
+    gpu::copy_cpu_to_gpu(gpu_data.d_modulus.ptr->_limbs, aA[0].get_modulus().data, 32);
+    libff::leave_block("Compute the recursive Infos");
+
     libff::enter_block("Compute coefficients of polynomial A");
     if(true){
-        CallIFFT<FieldT>(domain, aA, true, true);
+        CallIFFT<FieldT>(domain, aA, gpu_data, true, true, true);
     }else{
         domain->iFFT(aA);
     }
@@ -600,25 +691,27 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
 
     libff::enter_block("Compute evaluation of polynomial A on set T");
     domain->cosetFFT(aA, FieldT::multiplicative_generator);
-    CallIFFT<FieldT>(domain, aA, false, false);
+    CallIFFT<FieldT>(domain, aA, gpu_data, false, false, false);
     libff::leave_block("Compute evaluation of polynomial A on set T");
 
     libff::enter_block("Compute coefficients of polynomial B");
     if(true){
-        CallIFFT<FieldT>(domain, aB, true, true);
+        CallIFFT<FieldT>(domain, aB, gpu_data, true, true, false);
     }else{
         domain->iFFT(aB);
     }
     libff::leave_block("Compute coefficients of polynomial B");
 
-    libff::enter_block("Compute evaluation of polynomial B on set T");
+    libff::enter_block("Compute evaluation of polynomial B on set T coset");
     domain->cosetFFT(aB, FieldT::multiplicative_generator);
-    CallIFFT<FieldT>(domain, aB, false, false);
-    libff::leave_block("Compute evaluation of polynomial B on set T");
+    libff::leave_block("Compute evaluation of polynomial B on set T coset");
+    libff::enter_block("Compute evaluation of polynomial B on set T ifft");
+    CallIFFT<FieldT>(domain, aB, gpu_data, false, false, false);
+    libff::leave_block("Compute evaluation of polynomial B on set T ifft");
 
     libff::enter_block("Compute coefficients of polynomial C");
     if(true){
-        CallIFFT<FieldT>(domain, aC, true, true);
+        CallIFFT<FieldT>(domain, aC, gpu_data, true, true, false);
     }else{
         domain->iFFT(aC);
     }
@@ -626,7 +719,7 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
 
     libff::enter_block("Compute evaluation of polynomial C on set T");
     domain->cosetFFT(aC, FieldT::multiplicative_generator);
-    CallIFFT<FieldT>(domain, aC, false, false);
+    CallIFFT<FieldT>(domain, aC, gpu_data, false, false, false);
     libff::leave_block("Compute evaluation of polynomial C on set T");
 
     libff::enter_block("Compute evaluation of polynomial H on set T");
@@ -646,7 +739,7 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
     libff::leave_block("Compute evaluation of polynomial H on set T");
 
     libff::enter_block("Compute coefficients of polynomial H");
-    CallIFFT<FieldT>(domain, aH, true, false);
+    CallIFFT<FieldT>(domain, aH, gpu_data, true, false, false);
     domain->icosetFFT(aH, FieldT::multiplicative_generator);
     libff::leave_block("Compute coefficients of polynomial H");
 
