@@ -372,6 +372,8 @@ struct GpuData{
         d_itwiddles.release();
         d_ftwiddles.release();
         d_in.release();
+        h_in.release_host();
+        d_out.release();
     }
 };
 
