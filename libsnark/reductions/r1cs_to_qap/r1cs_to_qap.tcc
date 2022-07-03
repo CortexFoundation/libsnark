@@ -416,6 +416,7 @@ void CallIFFT(
     //printf("modulus:");
     //f(in[0].get_modulus());
     //printf("\n");
+#pragma omp parallel
     for(size_t i = 0; i < in.size(); i++){
         copy_field_to(in[i], gpu_data.h_in, i);
     }
@@ -600,6 +601,7 @@ void CallIFFT(
     }
 
     gpu_data.d_out.copy_to_cpu(gpu_data.h_in);
+    #pragma omp parallel
     for(size_t i = 0; i < in.size(); i++){
         copy_field_back(in[i], gpu_data.h_in, i);
     }
