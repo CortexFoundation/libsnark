@@ -393,6 +393,11 @@ struct GpuData{
         d_in_offsets.release();
         d_out_offsets.release();
         d_strides.release();
+        d_one.release();
+        d_g.release();
+        d_c.release();
+        d_sconst.release();
+        xor_results.release();
     }
 
     void InitOffsets(){
