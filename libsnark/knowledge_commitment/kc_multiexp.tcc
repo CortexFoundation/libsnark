@@ -1087,10 +1087,11 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
     //call gpu
     if(true){
 #ifdef MCL_GPU
-        int max_depth = 0, min_depth = 30130;
-        for(int i = 0; i < ranges.size(); i++){
-            max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
-        }
+      int max_depth = 0, min_depth = 30130;
+      for(int i = 0; i < ranges.size(); i++){
+        max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
+      }
+      gpu_mcl_data.max_depth = max_depth;
 
       const int local_instances = BlockDepth * 64;
       const int blocks = (max_depth + local_instances - 1) / local_instances;
@@ -1151,14 +1152,14 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
       gpu::copy_cpu_to_gpu(gpu_mcl_data.d_seconds.ptr, seconds.data(), sizeof(uint32_t) * ranges_size, stream);
       gpu::copy_cpu_to_gpu(gpu_mcl_data.d_index_it.ptr, vec.indices.data(), sizeof(size_t) * indices_size, stream);
 
-#pragma omp parallel for
-      for(int i = 0; i < values_size; i++){
-        libff::copy_t_h<T, FieldT>(value_it[i], gpu_mcl_data.h_values, i);
-      }
-#pragma omp parallel for
-      for(int i = 0; i < scalar_size; i++){
-        libff::copy_field_h<T, FieldT>(scalar_start[i], gpu_mcl_data.h_scalars, i);
-      }
+//#pragma omp parallel for
+//      for(int i = 0; i < values_size; i++){
+//        libff::copy_t_h<T, FieldT>(value_it[i], gpu_mcl_data.h_values, i);
+//      }
+//#pragma omp parallel for
+//      for(int i = 0; i < scalar_size; i++){
+//        libff::copy_field_h<T, FieldT>(scalar_start[i], gpu_mcl_data.h_scalars, i);
+//      }
 
       //for(int i = 0; i < bn_exponents.size(); i++){
       //  memcpy(gpu_mcl_data.h_bn_exponents.ptr + i, bn_exponents[i].data, 32);
@@ -1182,17 +1183,29 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
                                     const Config& config,
                                     libff::GpuMclData<T, FieldT>& gpu_mcl_data)
 {
-      const size_t scalar_length = vec.indices.size();
+     const size_t scalar_length = vec.indices.size();
       auto ranges = libsnark::get_cpu_ranges(0, scalar_length);
       const int ranges_size = ranges.size();
       uint64_t const_field_inv = scalar_start[0].inv;
       auto index_it = vec.indices.begin();
       auto value_it = vec.values.begin();
-      int max_depth = 0, min_depth = 30130;
-      for(int i = 0; i < ranges.size(); i++){
-          max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
-      }
+      //int max_depth = 0, min_depth = 30130;
+      //for(int i = 0; i < ranges.size(); i++){
+      //    max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
+      //}
       gpu::CudaStream& stream = gpu_mcl_data.stream;
+
+      const int values_size = vec.values.size();
+      const size_t scalar_size = std::distance(scalar_start, scalar_end);
+#pragma omp parallel for
+      for(int i = 0; i < values_size; i++){
+        libff::copy_t_h<T, FieldT>(value_it[i], gpu_mcl_data.h_values, i);
+      }
+#pragma omp parallel for
+      for(int i = 0; i < scalar_size; i++){
+        libff::copy_field_h<T, FieldT>(scalar_start[i], gpu_mcl_data.h_scalars, i);
+      }
+
       gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, stream);
       gpu_mcl_data.d_scalars.copy_from_cpu(gpu_mcl_data.h_scalars, stream);
       gpu::mcl_bn128_g1_reduce_sum(
@@ -1207,14 +1220,29 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
           gpu_mcl_data.d_t_zero, gpu_mcl_data.d_field_zero, gpu_mcl_data.d_field_one, (char*)gpu_mcl_data.d_density.ptr, gpu_mcl_data.d_bn_exponents.ptr, 
           gpu_mcl_data.d_field_modulus.ptr, const_field_inv, 
           gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a, value_it[0].pt.specialA_, value_it[0].pt.mode_,value_it[0].pt.x.getOp().rp,
-          max_depth, stream);
+          gpu_mcl_data.max_depth, stream);
           gpu::sync(stream);
 
 
       T gpu_acc;
       libff::copy_back<T, FieldT>(gpu_acc, gpu_mcl_data.d_partial, 0, stream);
 
-      //auto exp_out = libff::multi_exp_with_density_test<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
+      //std::vector<libff::bigint<FieldT::num_limbs>> bn_exponents(scalar_length); 
+
+      //std::vector<bool> density(scalar_length);
+      //std::vector<char> h_density(density.size());
+      //gpu_mcl_data.d_bn_exponents.copy_to_host(gpu_mcl_data.h_bn_exponents, stream);
+      //gpu::sync(stream);
+      //for(int i = 0; i < bn_exponents.size(); i++){
+      //  memcpy(bn_exponents[i].data, gpu_mcl_data.h_bn_exponents.ptr + i, 32);
+      //}
+      // gpu::copy_gpu_to_cpu(h_density.data(), gpu_mcl_data.d_density.ptr, density.size(), stream);
+      //gpu::sync(stream);
+      //for(int i = 0 ;i < density.size(); i++){
+      //  density[i] = (h_density[i] == 1);
+      //}
+
+      //T exp_out = libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
       T exp_out = libff::multi_exp_with_density_gpu_mcl<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), config, gpu_mcl_data.d_values, (char*)gpu_mcl_data.d_density.ptr, gpu_mcl_data.d_bn_exponents, gpu_mcl_data.dmax_value, gpu_mcl_data.d_modulus, gpu_mcl_data.d_t_zero, gpu_mcl_data.d_values2, gpu_mcl_data.d_buckets, gpu_mcl_data.d_buckets2, gpu_mcl_data.d_block_sums, gpu_mcl_data.d_block_sums2, (int*)gpu_mcl_data.d_bucket_counters.ptr, (int*)gpu_mcl_data.d_starts.ptr, (int*)gpu_mcl_data.d_indexs.ptr, (int*)gpu_mcl_data.d_ids.ptr, (int*)gpu_mcl_data.d_instance_bucket_ids.ptr, gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a, stream);
       
       auto tmp = gpu_acc + exp_out;
