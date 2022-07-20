@@ -7,6 +7,8 @@
 
 #ifndef KC_MULTIEXP_TCC_
 #define KC_MULTIEXP_TCC_
+
+#ifdef USE_GPU
 #include "cgbn_math.h"
 #include "cgbn_fp.h"
 #include "cgbn_fp2.h"
@@ -14,7 +16,7 @@
 #include "cgbn_alt_bn128_g2.h"
 #include "low_func_gpu.h"
 #include <cuda_runtime.h>
-
+#endif
 
 namespace libsnark {
 
@@ -27,7 +29,7 @@ knowledge_commitment<T1,T2> opt_window_wnaf_exp(const knowledge_commitment<T1,T2
 }
 
 
-
+#ifdef USE_GPU
 template<typename T, typename FieldT, libff::multi_exp_method Method>
 T gpu_kc_multi_exp_with_mixed_addition_g1(const sparse_vector<T> &vec,
                                     typename std::vector<FieldT>::const_iterator scalar_start,
@@ -713,7 +715,6 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
     //return acc + libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
     //call gpu
     if(true){
-#ifdef MCL_GPU
         int max_depth = 0, min_depth = 30130;
         for(int i = 0; i < ranges.size(); i++){
             max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
@@ -888,9 +889,9 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       
       auto tmp = gpu_acc + exp_out;
       return tmp;
-#endif
     }
 }
+#endif
 
 template<typename T, typename FieldT, libff::multi_exp_method Method>
 T kc_multi_exp_with_mixed_addition(const sparse_vector<T> &vec,
@@ -1016,6 +1017,8 @@ T kc_multi_exp_with_mixed_addition(const sparse_vector<T> &vec,
 
     return acc + libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
 }
+
+#ifdef USE_GPU
 template<typename T, typename FieldT, libff::multi_exp_method Method>
 void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec,
                                     typename std::vector<FieldT>::const_iterator scalar_start,
@@ -1086,7 +1089,6 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
 
     //call gpu
     if(true){
-#ifdef MCL_GPU
       int max_depth = 0, min_depth = 30130;
       for(int i = 0; i < ranges.size(); i++){
         max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
@@ -1171,7 +1173,6 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
       //  h_density[i] = density[i] ? 1 : 0;
       //}
       ///gpu::copy_cpu_to_gpu(gpu_mcl_data.d_density.ptr, h_density.data(), density.size(), stream);
-#endif
     }
 }
 
@@ -1248,6 +1249,7 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
       auto tmp = gpu_acc + exp_out;
       return tmp;
 }
+#endif
 
 template<typename T1, typename T2, typename FieldT>
 knowledge_commitment_vector<T1, T2> kc_batch_exp_internal(const size_t scalar_size,

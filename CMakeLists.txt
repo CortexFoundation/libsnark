@@ -10,6 +10,12 @@ set(
   "Default curve: one of ALT_BN128, BN128, EDWARDS, MNT4, MNT6"
 )
 
+if("${USE_GPU}")
+    message("libsnark USE_GPU=ON")
+    set(CMAKE_C_FLAGS " -DUSE_GPU ${CMAKE_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS " -DUSE_GPU ${CMAKE_CXX_FLAGS}")
+endif()
+
 option(
   DEBUG
   "Enable debugging mode"
@@ -123,13 +129,6 @@ set(
   CMAKE_CXX_FLAGS
   "${CMAKE_CXX_FLAGS} ${OPT_FLAGS}"
 )
-
-#set(CMAKE_C_FLAGS "-g ${CMAKE_C_FLAGS} -lcgbn_math -L/home/zkh/github/zion/3rd_party/CGBN -I/home/zkh/github/zion/3rd_party/CGBN/ -I/usr/local/cuda/include/ -L/usr/local/cuda/lib64/ -lcudart")
-#set(CMAKE_CXX_FLAGS "-g ${CMAKE_CXX_FLAGS} -lcgbn_math -L/home/zkh/github/zion/3rd_party/CGBN -I/home/zkh/github/zion/3rd_party/CGBN/ -I/home/zkh/github/zion/3rd_party/CGBN/include -I/usr/local/cuda/include/ -L/usr/local/cuda/lib64/ -lcudart")
-#
-#include_directories(/home/zkh/github/zion/3rd_party/CGBN)
-#include_directories(/home/zkh/github/zion/3rd_party/CGBN/include)
-#include_directories(/home/zkh/github/zion/3rd_party/CGBN/include/samples)
 
 # GMP
 find_path(GMP_INCLUDE_DIR NAMES gmp.h)

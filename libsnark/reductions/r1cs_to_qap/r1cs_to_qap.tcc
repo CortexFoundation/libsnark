@@ -18,13 +18,12 @@
 #include <libff/common/utils.hpp>
 #include <libfqfft/evaluation_domain/get_evaluation_domain.hpp>
 
+#ifdef USE_GPU
 #include "cgbn_math.h"
 #include "cgbn_fp.h"
-//#include "cgbn_fp2.h"
 #include "cgbn_alt_bn128_g1.h"
-//#include "cgbn_alt_bn128_g2.h"
-//#include "low_func_gpu.h"
 #include <cuda_runtime.h>
+#endif //end USE_GPU
 
 namespace libsnark {
 
@@ -194,6 +193,7 @@ qap_instance_evaluation<FieldT> r1cs_to_qap_instance_map_with_evaluation(const r
 }
 
 
+//for debug
 template<typename FieldT>
 static void butterfly_2(std::vector<FieldT>& out, const std::vector<FieldT>& twiddles, unsigned int stride, unsigned int stage_length, unsigned int out_offset)
 {
@@ -215,6 +215,7 @@ static void butterfly_2(std::vector<FieldT>& out, const std::vector<FieldT>& twi
     }
 }
 
+//for debug
 template<typename FieldT>
 static void butterfly_4(std::vector<FieldT>& out, const std::vector<FieldT>& twiddles, unsigned int stride, unsigned int stage_length, unsigned int out_offset, bool flag=false)
 {
@@ -319,6 +320,7 @@ static void butterfly_4(std::vector<FieldT>& out, const std::vector<FieldT>& twi
     }
 }
 
+#ifdef USE_GPU
 template<typename FieldT>
 void copy_field_to(const FieldT& src, gpu::Fp_model& dst, const int offset){
     memcpy(dst.mont_repr_data + offset, src.mont_repr.data, 32);
@@ -529,6 +531,7 @@ void CallIFFT(
         }
     }
 }
+#endif  //end USE_GPU
 
 /**
  * Witness map for the R1CS-to-QAP reduction.
@@ -559,6 +562,7 @@ void CallIFFT(
  * The code below is not as simple as the above high-level description due to
  * some reshuffling to save space.
  */
+ #ifdef USE_GPU
 template<typename FieldT>
 void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<FieldT>> domain,
                              const r1cs_constraint_system<FieldT> &cs,
@@ -682,6 +686,95 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
 
     libff::leave_block("Call to r1cs_to_qap_witness_map");
 }
+
+#else
+template<typename FieldT>
+void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<FieldT>> domain,
+                             const r1cs_constraint_system<FieldT> &cs,
+                             const std::vector<FieldT> &full_variable_assignment,
+                             std::vector<FieldT> &aA,
+                             std::vector<FieldT> &aB,
+                             std::vector<FieldT> &aH)
+{
+    libff::enter_block("Call to r1cs_to_qap_witness_map");
+
+    libff::enter_block("Compute evaluation of polynomials A, B, C on set S");
+    std::vector<FieldT> &aC = aH;
+#ifdef MULTICORE
+    #pragma omp parallel for
+#endif
+    for (size_t i = 0; i < cs.num_constraints(); ++i)
+    {
+        aA[i] = cs.constraints[i]->evaluateA(full_variable_assignment);
+        aB[i] = cs.constraints[i]->evaluateB(full_variable_assignment);
+        aC[i] = cs.constraints[i]->evaluateC(full_variable_assignment);
+    }
+    /* account for the additional constraints input_i * 0 = 0 */
+    for (size_t i = 0; i <= cs.num_inputs(); ++i)
+    {
+        aA[i+cs.num_constraints()] = full_variable_assignment[i];
+        aB[i+cs.num_constraints()] = FieldT::zero();
+        aC[i+cs.num_constraints()] = FieldT::zero();
+    }
+#ifdef MULTICORE
+    #pragma omp parallel for
+#endif
+    /* zero initialize the remaining coefficients */
+    for (size_t i = cs.num_constraints() + cs.num_inputs() + 1; i < domain->m; i++)
+    {
+        aA[i] = FieldT::zero();
+        aB[i] = FieldT::zero();
+        aC[i] = FieldT::zero();
+    }
+    libff::leave_block("Compute evaluation of polynomials A, B, C on set S");
+
+    libff::enter_block("Compute coefficients of polynomial A");
+    domain->iFFT(aA);
+    libff::leave_block("Compute coefficients of polynomial A");
+
+    libff::enter_block("Compute evaluation of polynomial A on set T");
+    domain->cosetFFT(aA, FieldT::multiplicative_generator);
+    libff::leave_block("Compute evaluation of polynomial A on set T");
+
+    libff::enter_block("Compute coefficients of polynomial B");
+    domain->iFFT(aB);
+    libff::leave_block("Compute coefficients of polynomial B");
+
+    libff::enter_block("Compute evaluation of polynomial B on set T");
+    domain->cosetFFT(aB, FieldT::multiplicative_generator);
+    libff::leave_block("Compute evaluation of polynomial B on set T");
+
+    libff::enter_block("Compute coefficients of polynomial C");
+    domain->iFFT(aC);
+    libff::leave_block("Compute coefficients of polynomial C");
+
+    libff::enter_block("Compute evaluation of polynomial C on set T");
+    domain->cosetFFT(aC, FieldT::multiplicative_generator);
+    libff::leave_block("Compute evaluation of polynomial C on set T");
+
+    libff::enter_block("Compute evaluation of polynomial H on set T");
+#ifdef MULTICORE
+#pragma omp parallel for
+#endif
+    for (size_t i = 0; i < domain->m; ++i)
+    {
+        aH[i] = (aA[i] * aB[i]) - aC[i];
+    }
+    aH[domain->m] = FieldT::zero();
+
+    libff::enter_block("Divide by Z on set T");
+    domain->divide_by_Z_on_coset(aH);
+    libff::leave_block("Divide by Z on set T");
+
+    libff::leave_block("Compute evaluation of polynomial H on set T");
+
+    libff::enter_block("Compute coefficients of polynomial H");
+    domain->icosetFFT(aH, FieldT::multiplicative_generator);
+    libff::leave_block("Compute coefficients of polynomial H");
+
+    libff::leave_block("Call to r1cs_to_qap_witness_map");
+}
+#endif
 
 } // libsnark
 
