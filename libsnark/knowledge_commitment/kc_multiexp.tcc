@@ -664,30 +664,30 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
     //libff::enter_block("reduce");
     //libff::enter_block("evaluation reduce");
 
-#ifdef MULTICORE
-    #pragma omp parallel for
-#endif
-    for (size_t j = 0; j < ranges.size(); j++)
-    {
-        T result = T::zero();
-        unsigned int count = 0;
-        for (unsigned int i = ranges[j].first; i < ranges[j].second; i++)
-        {
-            const FieldT scalar = scalar_start[index_it[i]];
-            if (scalar == zero){
-            }
-            else if (scalar == one){
-                //result = result + value_it[i];
-            }
-            else{
-                density[i] = true;
-                bn_exponents[i] = scalar.as_bigint();
-                ++count;
-            }
-        }
-        partial[j] = result; 
-        counters[j] = count;
-    }
+//#ifdef MULTICORE
+//    #pragma omp parallel for
+//#endif
+//    for (size_t j = 0; j < ranges.size(); j++)
+//    {
+//        T result = T::zero();
+//        unsigned int count = 0;
+//        for (unsigned int i = ranges[j].first; i < ranges[j].second; i++)
+//        {
+//            const FieldT scalar = scalar_start[index_it[i]];
+//            if (scalar == zero){
+//            }
+//            else if (scalar == one){
+//                //result = result + value_it[i];
+//            }
+//            else{
+//                density[i] = true;
+//                bn_exponents[i] = scalar.as_bigint();
+//                ++count;
+//            }
+//        }
+//        partial[j] = result; 
+//        counters[j] = count;
+//    }
 
     //T acc = T::zero();
     //unsigned int totalCount = 0;
@@ -783,25 +783,43 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
 
       gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, stream);
       gpu_mcl_data.d_scalars.copy_from_cpu(gpu_mcl_data.h_scalars, stream);
-
-      gpu::mcl_bn128_g2_reduce_sum_new(
-          gpu_mcl_data.d_values, 
-          gpu_mcl_data.d_scalars, 
-          (size_t*)gpu_mcl_data.d_index_it.ptr, 
-          gpu_mcl_data.d_partial, 
-         (uint32_t*)gpu_mcl_data.d_counters.ptr, 
-          (char*)gpu_mcl_data.d_flags.ptr,
-          ranges_size, 
-          (uint32_t*)gpu_mcl_data.d_firsts.ptr, (uint32_t*)gpu_mcl_data.d_seconds.ptr,
-          gpu_mcl_data.d_t_zero, gpu_mcl_data.d_field_zero, gpu_mcl_data.d_field_one, (char*)gpu_mcl_data.d_density.ptr, gpu_mcl_data.d_bn_exponents.ptr, 
-          gpu_mcl_data.d_field_modulus.ptr, const_field_inv, 
-          gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a2, value_it[0].pt.specialA_, value_it[0].pt.mode_,value_it[0].pt.x.a.getOp().rp,
-          gpu_mcl_data.max_depth, values_size, stream);
-        gpu::sync(stream);
+      {
+          gpu::mcl_bn128_g2_reduce_sum_new(
+                  gpu_mcl_data.d_values, 
+                  gpu_mcl_data.d_scalars, 
+                  (size_t*)gpu_mcl_data.d_index_it.ptr, 
+                  gpu_mcl_data.d_partial, 
+                  (uint32_t*)gpu_mcl_data.d_counters.ptr, 
+                  (char*)gpu_mcl_data.d_flags.ptr,
+                  ranges_size, 
+                  (uint32_t*)gpu_mcl_data.d_firsts.ptr, (uint32_t*)gpu_mcl_data.d_seconds.ptr,
+                  gpu_mcl_data.d_t_zero, gpu_mcl_data.d_field_zero, gpu_mcl_data.d_field_one, (char*)gpu_mcl_data.d_density.ptr, gpu_mcl_data.d_bn_exponents.ptr, 
+                  gpu_mcl_data.d_field_modulus.ptr, const_field_inv, 
+                  gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a2, value_it[0].pt.specialA_, value_it[0].pt.mode_,value_it[0].pt.x.a.getOp().rp,
+                  gpu_mcl_data.max_depth, values_size, stream);
+          gpu::sync(stream);
+      }
 
       T gpu_acc;
       libff::copy_back<T, FieldT>(gpu_acc, gpu_mcl_data.d_partial, 0, stream);
-      gpu::sync(stream);
+      //gpu::sync(stream);
+
+      if(false){
+        //gpu_mcl_data.d_bn_exponents.copy_to_host(gpu_mcl_data.h_bn_exponents, stream);
+        //gpu::sync(stream);
+        //std::vector<char> density_tmp(density.size());
+        //gpu::copy_gpu_to_cpu(density_tmp.data(), gpu_mcl_data.d_density.ptr, density.size(), stream);
+        //gpu::sync(stream);
+        //int cmp = memcmp(gpu_mcl_data.h_bn_exponents.ptr, bn_exponents.data(), 32*bn_exponents.size());
+        //assert(cmp == 0);
+        //for(int i = 0; i < density.size(); i++){
+        //    int a = (int)density[i];
+        //    int b = (int)density_tmp[i];
+        //    assert(a == b);
+        //}
+       // assert(acc == gpu_acc);
+      }
+
       T exp_out = libff::multi_exp_with_density_gpu_mcl_g2<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config, gpu_mcl_data.d_values, (char*)gpu_mcl_data.d_density.ptr, gpu_mcl_data.d_bn_exponents, gpu_mcl_data.dmax_value, gpu_mcl_data.d_modulus, gpu_mcl_data.d_t_zero, gpu_mcl_data.d_values2, gpu_mcl_data.d_buckets, gpu_mcl_data.d_buckets2, gpu_mcl_data.d_block_sums, gpu_mcl_data.d_block_sums2, (int*)gpu_mcl_data.d_bucket_counters.ptr, (int*)gpu_mcl_data.d_starts.ptr, (int*)gpu_mcl_data.d_indexs.ptr, (int*)gpu_mcl_data.d_ids.ptr, (int*)gpu_mcl_data.d_instance_bucket_ids.ptr, gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a2, stream);
       //T exp_out = libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
       
