@@ -194,16 +194,17 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
                   gpu_mcl_data.d_field_modulus.ptr, const_field_inv, 
                   gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a2, value_it[0].pt.specialA_, value_it[0].pt.mode_,value_it[0].pt.x.a.getOp().rp,
                   gpu_mcl_data.max_depth, values_size, stream);
-          gpu::sync(stream);
+          //gpu::sync(stream);
       }
 
       T gpu_acc;
       libff::copy_back<T, FieldT>(gpu_acc, gpu_mcl_data.d_partial, 0, stream);
+      gpu::sync(stream);
 
       T exp_out = libff::multi_exp_with_density_gpu_mcl_g2<T, FieldT, false, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config, gpu_mcl_data.d_values, (char*)gpu_mcl_data.d_density.ptr, gpu_mcl_data.d_bn_exponents, gpu_mcl_data.dmax_value, gpu_mcl_data.d_modulus, gpu_mcl_data.d_t_zero, gpu_mcl_data.d_values2, gpu_mcl_data.d_buckets, gpu_mcl_data.d_buckets2, gpu_mcl_data.d_block_sums, gpu_mcl_data.d_block_sums2, (int*)gpu_mcl_data.d_bucket_counters.ptr, (int*)gpu_mcl_data.d_starts.ptr, (int*)gpu_mcl_data.d_indexs.ptr, (int*)gpu_mcl_data.d_ids.ptr, (int*)gpu_mcl_data.d_instance_bucket_ids.ptr, gpu_mcl_data.d_one, gpu_mcl_data.d_p, gpu_mcl_data.d_a2, stream);
       //T exp_out = libff::multi_exp_with_density<T, FieldT, true, Method>(vec.values.begin(), vec.values.end(), bn_exponents, density, config);
       
-      gpu::sync(stream);
+      //gpu::sync(stream);
       auto tmp = gpu_acc + exp_out;
 
       return tmp;
