@@ -138,7 +138,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       gpu_mcl_data.d_partial.resize(values_size);
       //gpu_mcl_data.d_partial.resize(ranges_size * gpu::REDUCE_BLOCKS_PER_RANGE * gpu::INSTANCES_PER_BLOCK);
       gpu_mcl_data.d_bn_exponents.resize(bn_exponents.size());
-      gpu_mcl_data.h_bn_exponents.resize_host(bn_exponents.size());
+      //gpu_mcl_data.h_bn_exponents.resize_host(bn_exponents.size());
       for(int i = 0; i < chunks; i++){
         gpu_mcl_data.d_values2[i].resize(length);
         gpu_mcl_data.d_buckets[i].resize((1<<c) * instances);
@@ -442,7 +442,7 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
       gpu_mcl_data.d_scalars.resize(scalar_size);
       gpu_mcl_data.d_partial.resize(values_size);
       gpu_mcl_data.d_bn_exponents.resize(bn_exponents.size());
-      gpu_mcl_data.h_bn_exponents.resize_host(bn_exponents.size());
+      //gpu_mcl_data.h_bn_exponents.resize_host(bn_exponents.size());
       for(int i = 0; i < chunks; i++){
         gpu_mcl_data.d_values2[i].resize(length);
         gpu_mcl_data.d_buckets[i].resize((1<<c) * instances);
