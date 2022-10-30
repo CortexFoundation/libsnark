@@ -18,12 +18,6 @@
 #include <libff/common/utils.hpp>
 #include <libfqfft/evaluation_domain/get_evaluation_domain.hpp>
 
-#ifdef USE_GPU
-#include "cgbn_math.h"
-#include "cgbn_fp.h"
-#include "cgbn_alt_bn128_g1.h"
-#include <cuda_runtime.h>
-#endif //end USE_GPU
 
 namespace libsnark {
 
@@ -391,7 +385,7 @@ struct GpuData{
         d_A.release();
         d_B.release();
         d_C.release();
-        d_H.release();
+        //d_H.release();
         d_in_offsets.release();
         d_out_offsets.release();
         d_strides.release();
@@ -569,7 +563,8 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
                              const std::vector<FieldT> &full_variable_assignment,
                              std::vector<FieldT> &aA,
                              std::vector<FieldT> &aB,
-                             std::vector<FieldT> &aH)
+                             std::vector<FieldT> &aH,
+                             gpu::Fp_model& d_H)
 {
     libff::enter_block("Call to r1cs_to_qap_witness_map");
 
@@ -648,6 +643,7 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
     //domain->cosetFFT(aC, FieldT::multiplicative_generator);
     CallIFFT<FieldT>(domain, aC, gpu_data, gpu_data.h_in, gpu_data.d_out, gpu_data.d_C, false, false, false, false, false, false);
     libff::leave_block("Compute evaluation of polynomial C on set T");
+    //gpu::Fp_model& d_H = d_H2; //gpu_data.d_H;
 
     libff::enter_block("Compute evaluation of polynomial H on set T");
     {
@@ -655,32 +651,35 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
         const FieldT Z_inverse_at_coset = domain->compute_vanishing_polynomial(coset).inverse();
         gpu::Fp_model d_coset;
         d_coset.resize(1);
-        gpu_data.d_H.resize(domain->m+1);
+        //gpu_data.d_H.resize(domain->m+1);
+        d_H.resize(domain->m+1);
         gpu::copy_cpu_to_gpu(d_coset.mont_repr_data, Z_inverse_at_coset.mont_repr.data, 32);
-        gpu::calc_H(gpu_data.d_A, gpu_data.d_B, gpu_data.d_C, gpu_data.d_H, d_coset, domain->m, gpu_data.d_max_values.ptr, gpu_data.d_modulus.ptr, aA[0].inv); 
-        gpu::copy_cpu_to_gpu(gpu_data.d_H.mont_repr_data + domain->m, FieldT::zero().mont_repr.data, 32); 
+        gpu::calc_H(gpu_data.d_A, gpu_data.d_B, gpu_data.d_C, d_H, d_coset, domain->m, gpu_data.d_max_values.ptr, gpu_data.d_modulus.ptr, aA[0].inv); 
+        gpu::copy_cpu_to_gpu(d_H.mont_repr_data + domain->m, FieldT::zero().mont_repr.data, 32); 
     }
 
     libff::leave_block("Compute evaluation of polynomial H on set T");
 
     libff::enter_block("Compute coefficients of polynomial H");
-    CallIFFT<FieldT>(domain, aH, gpu_data, gpu_data.h_in, gpu_data.d_H, gpu_data.d_out, true, true, false, false, false, false);
+    CallIFFT<FieldT>(domain, aH, gpu_data, gpu_data.h_in, d_H, gpu_data.d_out, false, true, false, false, false, false);
     //calc xor is slow, so call host icosetFFT 
-    domain->icosetFFT(aH, FieldT::multiplicative_generator);
-    if(false){
+    //domain->icosetFFT(aH, FieldT::multiplicative_generator);
+    if(true){
         const FieldT sconst = FieldT(domain->m).inverse();
         const FieldT g = FieldT::multiplicative_generator.inverse();
         gpu::copy_cpu_to_gpu(gpu_data.d_g.mont_repr_data, g.mont_repr.data, 32);
         gpu::copy_cpu_to_gpu(gpu_data.d_c.mont_repr_data, sconst.mont_repr.data, 32);
         //need calc xor because g is change
-        gpu_data.calc_xor = false;
+        gpu_data.calc_xor = true;
         GpuMultiplyByCosetAndConstant<FieldT>(gpu_data, domain->m, gpu_data.d_out);
-        gpu_data.h_in.resize_host(aH.size());
-        gpu_data.d_out.copy_to_cpu(gpu_data.h_in);
-    #pragma omp parallel
-        for(size_t i = 0; i < aH.size(); i++){
-            copy_field_back(aH[i], gpu_data.h_in, i);
-        }
+        d_H.copy_from_gpu(gpu_data.d_out);
+        gpu::sync(0);
+    ///    gpu_data.h_in.resize_host(aH.size());
+    ///    gpu_data.d_out.copy_to_cpu(gpu_data.h_in);
+    ///#pragma omp parallel
+    ///    for(size_t i = 0; i < aH.size(); i++){
+    ///        copy_field_back(aH[i], gpu_data.h_in, i);
+    ///    }
     }
     libff::leave_block("Compute coefficients of polynomial H");
 
