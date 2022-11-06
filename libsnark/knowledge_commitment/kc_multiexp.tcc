@@ -107,12 +107,9 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       }
       gpu_mcl_data.max_depth = max_depth;
 
-      const int local_instances = BlockDepth * 64;
-      const int blocks = (max_depth + local_instances - 1) / local_instances;
-      unsigned int c = config.multi_exp_c == 0 ? 16 : config.multi_exp_c;
+      unsigned int c = config.multi_exp_c == 0 ? 15 : config.multi_exp_c;
       //unsigned int chunks = config.num_threads;
       unsigned int chunks = 1;//(254 + c - 1) / c;
-      const int instances = gpu::BUCKET_INSTANCES;
       const int length = vec.values.size();
       const int ranges_size = ranges.size();
       const int values_size = vec.values.size();
@@ -141,14 +138,14 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       //gpu_mcl_data.h_bn_exponents.resize_host(bn_exponents.size());
       for(int i = 0; i < chunks; i++){
         gpu_mcl_data.d_values2[i].resize(length);
-        gpu_mcl_data.d_buckets[i].resize((1<<c) * instances);
+        gpu_mcl_data.d_buckets[i].resize((1<<c));
         gpu_mcl_data.d_buckets2[i].resize((1<<c));
         gpu_mcl_data.d_block_sums[i].resize((1<<c) / 32);
         gpu_mcl_data.d_block_sums2[i].resize((1<<c) / 32/32);
       }
       {
         gpu_mcl_data.d_counters.resize(ranges_size * max_depth * sizeof(uint32_t));
-        gpu_mcl_data.d_counters2.resize(ranges_size * sizeof(uint32_t));
+        //gpu_mcl_data.d_counters2.resize(ranges_size * sizeof(uint32_t));
         gpu_mcl_data.d_firsts.resize(ranges_size * sizeof(uint32_t));
         gpu_mcl_data.d_seconds.resize(ranges_size * sizeof(uint32_t));
         gpu_mcl_data.d_bucket_counters.resize((1<<c) * sizeof(int) * chunks);
@@ -414,12 +411,9 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
       }
       gpu_mcl_data.max_depth = max_depth;
 
-      const int local_instances = BlockDepth * 64;
-      const int blocks = (max_depth + local_instances - 1) / local_instances;
       unsigned int c = config.multi_exp_c == 0 ? 16 : config.multi_exp_c;
       //unsigned int chunks = config.num_threads;
       unsigned int chunks = 1;//(254 + c - 1) / c;
-      const int instances = gpu::BUCKET_INSTANCES;
       const int length = vec.values.size();
       const int ranges_size = ranges.size();
       const int values_size = vec.values.size();
@@ -445,14 +439,14 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
       //gpu_mcl_data.h_bn_exponents.resize_host(bn_exponents.size());
       for(int i = 0; i < chunks; i++){
         gpu_mcl_data.d_values2[i].resize(length);
-        gpu_mcl_data.d_buckets[i].resize((1<<c) * instances);
+        gpu_mcl_data.d_buckets[i].resize((1<<c));
         gpu_mcl_data.d_buckets2[i].resize((1<<c));
         gpu_mcl_data.d_block_sums[i].resize((1<<c) / 32);
         gpu_mcl_data.d_block_sums2[i].resize((1<<c) / 32/32);
       }
       {
         gpu_mcl_data.d_counters.resize(ranges_size * max_depth * sizeof(uint32_t));
-        gpu_mcl_data.d_counters2.resize(ranges_size * sizeof(uint32_t));
+        //gpu_mcl_data.d_counters2.resize(ranges_size * sizeof(uint32_t));
         gpu_mcl_data.d_firsts.resize(ranges_size * sizeof(uint32_t));
         gpu_mcl_data.d_seconds.resize(ranges_size * sizeof(uint32_t));
         gpu_mcl_data.d_bucket_counters.resize((1<<c) * sizeof(int) * chunks);
@@ -462,7 +456,7 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
         gpu_mcl_data.d_instance_bucket_ids.resize((length+1) * sizeof(int) * chunks * 2);
         gpu_mcl_data.d_index_it.resize(indices_size * sizeof(size_t));
         gpu_mcl_data.d_density.resize(density.size());
-        gpu_mcl_data.d_flags.resize(scalar_size);
+        gpu_mcl_data.d_flags.resize(scalar_size * 4);
       }
       std::vector<uint32_t> firsts(ranges_size), seconds(ranges_size);
       for(int i = 0; i < ranges_size; i++){
