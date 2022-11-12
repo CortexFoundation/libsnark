@@ -155,7 +155,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
         gpu_mcl_data.d_instance_bucket_ids.resize((length+1) * sizeof(int) * chunks * 2);
         gpu_mcl_data.d_index_it.resize(indices_size * sizeof(size_t));
         gpu_mcl_data.d_density.resize(density.size());
-        gpu_mcl_data.d_flags.resize(scalar_size);
+        gpu_mcl_data.d_flags.resize(scalar_size * 4);
       }
       std::vector<uint32_t> firsts(ranges_size), seconds(ranges_size);
       for(int i = 0; i < ranges_size; i++){
@@ -177,6 +177,8 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
 
       gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, stream);
       gpu_mcl_data.d_scalars.copy_from_cpu(gpu_mcl_data.h_scalars, stream);
+      gpu::gpu_set_zero(gpu_mcl_data.d_flags.ptr, scalar_size * 4, stream);
+      gpu_mcl_data.d_bn_exponents.clear(stream);
       {
           gpu::mcl_bn128_g2_reduce_sum_new(
                   gpu_mcl_data.d_values, 
@@ -456,7 +458,7 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
         gpu_mcl_data.d_instance_bucket_ids.resize((length+1) * sizeof(int) * chunks * 2);
         gpu_mcl_data.d_index_it.resize(indices_size * sizeof(size_t));
         gpu_mcl_data.d_density.resize(density.size());
-        gpu_mcl_data.d_flags.resize(scalar_size * 4);
+        gpu_mcl_data.d_flags.resize(scalar_size*4);
       }
       std::vector<uint32_t> firsts(ranges_size), seconds(ranges_size);
       for(int i = 0; i < ranges_size; i++){
@@ -502,6 +504,8 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
 
       gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, stream);
       gpu_mcl_data.d_scalars.copy_from_cpu(gpu_mcl_data.h_scalars, stream);
+      gpu::gpu_set_zero(gpu_mcl_data.d_flags.ptr, scalar_size*4, stream);
+      gpu_mcl_data.d_bn_exponents.clear(stream);
       gpu::mcl_bn128_g1_reduce_sum(
           gpu_mcl_data.d_values, 
           gpu_mcl_data.d_scalars, 
