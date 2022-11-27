@@ -37,8 +37,9 @@
 
 #ifdef USE_GPU
 #include "cgbn_math.h"
-#include "cgbn_fp.h"
-#include "cgbn_alt_bn128_g1.h"
+//#include "cgbn_fp.h"
+//#include "cgbn_alt_bn128_g1.h"
+#include "common.h"
 #include <cuda_runtime.h>
 #endif //end USE_GPU
 

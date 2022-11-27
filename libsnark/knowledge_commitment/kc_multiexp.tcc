@@ -12,8 +12,6 @@
 #include "cgbn_math.h"
 #include "cgbn_fp.h"
 #include "cgbn_fp2.h"
-//#include "cgbn_alt_bn128_g1.h"
-//#include "cgbn_alt_bn128_g2.h"
 #include "low_func_gpu.h"
 #include "bigint_256.cuh"
 #include <cuda_runtime.h>
