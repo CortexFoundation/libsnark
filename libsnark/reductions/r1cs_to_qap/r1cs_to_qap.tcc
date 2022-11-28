@@ -344,6 +344,27 @@ struct GpuData{
         d_g.resize(gpu_ctx, 1);
         d_c.resize(gpu_ctx, 1);
         d_sconst.resize(gpu_ctx, 1);
+        {
+           h_itwiddles.name_ = "h_itwiddles"; 
+           h_ftwiddles.name_ = "h_ftwiddles"; 
+           d_itwiddles.name_ = "d_itwiddles"; 
+           d_ftwiddles.name_ = "d_ftwiddles"; 
+           d_modulus.name_ = "d_modulus";
+           h_in.name_ = "h_in";
+           d_in.name_ = "d_in";
+           d_out.name_ = "d_out";
+           d_A.name_ = "d_A";
+           d_B.name_ = "d_B";
+           d_C.name_ = "d_C";
+           xor_results.name_ = "xor_results";
+           d_one.name_= "d_one";
+           d_g.name_ = "d_g";
+           d_c.name_ = "d_c";
+           d_sconst.name_ = "d_sconst";
+           d_in_offsets.name_ = "d_in_offsets";
+           d_out_offsets.name_ = "d_in_offsets";
+           d_strides.name_ = "d_in_offsets";
+        }
 
         auto copy_twiddle = [&](const std::vector<std::vector<FieldT>>& twiddles, gpu::Buffer<>& h_twiddles, gpu::Buffer<>& d_twiddles, std::vector<int>& twiddle_offsets){
             int total_twiddle = 0;
@@ -602,8 +623,10 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
         const FieldT coset = FieldT::multiplicative_generator;
         const FieldT Z_inverse_at_coset = domain->compute_vanishing_polynomial(coset).inverse();
         gpu::Buffer<gpu::Int, gpu::N> d_coset;
+        d_coset.name_ = std::string("d_coset");
         d_coset.resize(&gpu_ctx, 1);
         //gpu_data.d_H.resize(domain->m+1);
+        d_H.name_ = std::string("d_H");
         d_H.resize(&gpu_ctx, domain->m+1);
         gpu::copy_cpu_to_gpu(d_coset.ptr_, Z_inverse_at_coset.mont_repr.data, 32);
         gpu::calc_H(gpu_data.d_A, gpu_data.d_B, gpu_data.d_C, d_H, d_coset, domain->m, gpu_data.d_modulus, aA[0].inv); 
