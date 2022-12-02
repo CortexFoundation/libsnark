@@ -335,9 +335,11 @@ struct GpuData{
     uint64_t const_inv; 
     gpu::GPUContext *gpu_ctx_;
     gpu::CPUContext *cpu_ctx_ = new gpu::CPUContext();
+    gpu::GPUStream stream_;
 
     GpuData(const std::shared_ptr<libfqfft::evaluation_domain<FieldT>> domain, gpu::GPUContext* gpu_ctx){
         gpu_ctx_ = gpu_ctx;
+        stream_.create();
         d_modulus.resize(gpu_ctx, 1);
         xor_results.resize(gpu_ctx, domain->m+1);
         d_one.resize(gpu_ctx, 1);
@@ -363,7 +365,7 @@ struct GpuData{
                 twiddle_offsets[level] = twiddle_offset;
                 twiddle_offset += twiddles[level].size();
             }
-            d_twiddles.copy(h_twiddles);
+            d_twiddles.copy(h_twiddles, &stream_);
         };
         copy_twiddle(domain->data.iTwiddles, h_itwiddles, d_itwiddles, itwiddle_offsets);
         copy_twiddle(domain->data.fTwiddles, h_ftwiddles, d_ftwiddles, ftwiddle_offsets);
@@ -415,19 +417,20 @@ struct GpuData{
           strides[info_offset + j] = infos[i][j].stride;
         }
       }
-      gpu::copy_cpu_to_gpu(d_in_offsets.ptr_, in_offsets.data(), total_len*sizeof(int), gpu_ctx_->stream_);
-      gpu::copy_cpu_to_gpu(d_out_offsets.ptr_, out_offsets.data(), total_len*sizeof(int), gpu_ctx_->stream_);
-      gpu::copy_cpu_to_gpu(d_strides.ptr_, strides.data(), total_len*sizeof(int), gpu_ctx_->stream_);
+      gpu::copy_cpu_to_gpu(d_in_offsets.ptr_, in_offsets.data(), total_len*sizeof(int), stream_.stream_);
+      gpu::copy_cpu_to_gpu(d_out_offsets.ptr_, out_offsets.data(), total_len*sizeof(int), stream_.stream_);
+      gpu::copy_cpu_to_gpu(d_strides.ptr_, strides.data(), total_len*sizeof(int), stream_.stream_);
     }
 };
 
 template<typename FieldT>
 void GpuMultiplyByCosetAndConstant(GpuData<FieldT>& gpu_data, const int n, gpu::Buffer<gpu::Int, gpu::N>& d_out){
+    auto& stream = gpu_data.stream_.stream_;
     if(gpu_data.calc_xor){
         gpu_data.calc_xor = false;
-        gpu::calc_xor(gpu_data.xor_results, n, 1, gpu_data.d_g, gpu_data.d_one, gpu_data.d_modulus, gpu_data.const_inv, 64, gpu_data.gpu_ctx_->stream_);
+        gpu::calc_xor(gpu_data.xor_results, n, 1, gpu_data.d_g, gpu_data.d_one, gpu_data.d_modulus, gpu_data.const_inv, 64, stream);
     }
-    gpu::multiply(d_out, gpu_data.xor_results, n, 1, gpu_data.d_c, gpu_data.d_modulus, gpu_data.const_inv, gpu_data.gpu_ctx_->stream_);
+    gpu::multiply(d_out, gpu_data.xor_results, n, 1, gpu_data.d_c, gpu_data.d_modulus, gpu_data.const_inv, stream);
 }
 
 template<typename FieldT>
@@ -455,7 +458,7 @@ void CallIFFT(
         for(size_t i = 0; i < in.size(); i++){
             copy_field_to(in[i], h_in, i);
         }
-        d_in.copy(h_in);
+        d_in.copy(h_in, &gpu_data.stream_);
     }
 
     auto& twiddles =  inverse ? domain->data.iTwiddles : domain->data.fTwiddles;
@@ -464,6 +467,7 @@ void CallIFFT(
     std::vector<int>& twiddle_offsets = inverse ? gpu_data.itwiddle_offsets : gpu_data.ftwiddle_offsets;
 
     auto& infos = gpu_data.infos;
+    auto& stream = gpu_data.stream_.stream_;
 
     for(int i = infos.size()-1; i >= 0; i--){
         int info_len = infos[i].size();
@@ -472,24 +476,24 @@ void CallIFFT(
         const uint32_t radix = domain->data.stages[i].radix;
         const int info_offset = gpu_data.info_offsets[i];
         if(stage_length == 1){
-            gpu::fft_copy(d_in, d_out, (int*)gpu_data.d_in_offsets.ptr_ + info_offset, (int*)gpu_data.d_out_offsets.ptr_ + info_offset, (int*)gpu_data.d_strides.ptr_ + info_offset, info_len, radix, gpu_data.gpu_ctx_->stream_);     
+            gpu::fft_copy(d_in, d_out, (int*)gpu_data.d_in_offsets.ptr_ + info_offset, (int*)gpu_data.d_out_offsets.ptr_ + info_offset, (int*)gpu_data.d_strides.ptr_ + info_offset, info_len, radix, stream);     
         }
         if(radix == 2){
-            gpu::butterfly_2(d_out, d_twiddles, twiddle_offsets[i], (int*)gpu_data.d_strides.ptr_ + info_offset, stage_length, (int*)gpu_data.d_out_offsets.ptr_ + info_offset, info_len, gpu_data.d_modulus, const_inv, gpu_data.gpu_ctx_->stream_); 
+            gpu::butterfly_2(d_out, d_twiddles, twiddle_offsets[i], (int*)gpu_data.d_strides.ptr_ + info_offset, stage_length, (int*)gpu_data.d_out_offsets.ptr_ + info_offset, info_len, gpu_data.d_modulus, const_inv, stream); 
         }
         if(radix == 4){
-            gpu::butterfly_4(d_out, d_twiddles, twiddles[i].size(), twiddle_offsets[i], (int*)gpu_data.d_strides.ptr_ + info_offset, stage_length, (int*)gpu_data.d_out_offsets.ptr_ + info_offset, info_len, gpu_data.d_modulus, const_inv, gpu_data.gpu_ctx_->stream_); 
+            gpu::butterfly_4(d_out, d_twiddles, twiddles[i].size(), twiddle_offsets[i], (int*)gpu_data.d_strides.ptr_ + info_offset, stage_length, (int*)gpu_data.d_out_offsets.ptr_ + info_offset, info_len, gpu_data.d_modulus, const_inv, stream); 
         }
     }
 
     size_t m = domain->m;
     if(need_mul_scalar){
-        gpu::alt_bn128_g1_elementwise_mul_scalar(d_out, gpu_data.d_sconst, m, gpu_data.d_modulus, const_inv, gpu_data.gpu_ctx_->stream_);  
+        gpu::alt_bn128_g1_elementwise_mul_scalar(d_out, gpu_data.d_sconst, m, gpu_data.d_modulus, const_inv, stream);  
     }
 
     if(copy_out){
         //d_out.copy_to_cpu(h_in);
-        h_in.copy(d_out);
+        h_in.copy(d_out, &gpu_data.stream_);
 #pragma omp parallel
         for(size_t i = 0; i < in.size(); i++){
             copy_field_back(in[i], h_in, i);
@@ -570,8 +574,9 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
     libff::leave_block("Compute evaluation of polynomials A, B, C on set S");
 
     libff::enter_block("Compute the recursive Infos");
-    gpu::GPUContext gpu_ctx;
+    static gpu::GPUContext gpu_ctx;
     GpuData<FieldT> gpu_data(domain, &gpu_ctx);
+    auto& stream = gpu_data.stream_.stream_;
     //gpu_data.infos.clear();
     domain->fft_internal(aA, gpu_data.infos);
     gpu_data.InitOffsets();
@@ -625,9 +630,9 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
         d_coset.resize(&gpu_ctx, 1);
         //gpu_data.d_H.resize(domain->m+1);
         d_H.resize(&gpu_ctx, domain->m+1);
-        gpu::copy_cpu_to_gpu(d_coset.ptr_, Z_inverse_at_coset.mont_repr.data, 32, gpu_ctx.stream_);
-        gpu::calc_H(gpu_data.d_A, gpu_data.d_B, gpu_data.d_C, d_H, d_coset, domain->m, gpu_data.d_modulus, aA[0].inv, gpu_ctx.stream_); 
-        gpu::copy_cpu_to_gpu(d_H.ptr_ + domain->m * gpu::N, FieldT::zero().mont_repr.data, 32, gpu_ctx.stream_); 
+        gpu::copy_cpu_to_gpu(d_coset.ptr_, Z_inverse_at_coset.mont_repr.data, 32, stream);
+        gpu::calc_H(gpu_data.d_A, gpu_data.d_B, gpu_data.d_C, d_H, d_coset, domain->m, gpu_data.d_modulus, aA[0].inv, stream); 
+        gpu::copy_cpu_to_gpu(d_H.ptr_ + domain->m * gpu::N, FieldT::zero().mont_repr.data, 32, stream); 
     }
 
     libff::leave_block("Compute evaluation of polynomial H on set T");
@@ -639,13 +644,13 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
     if(true){
         const FieldT sconst = FieldT(domain->m).inverse();
         const FieldT g = FieldT::multiplicative_generator.inverse();
-        gpu::copy_cpu_to_gpu(gpu_data.d_g.ptr_, g.mont_repr.data, 32, gpu_ctx.stream_);
-        gpu::copy_cpu_to_gpu(gpu_data.d_c.ptr_, sconst.mont_repr.data, 32, gpu_ctx.stream_);
+        gpu::copy_cpu_to_gpu(gpu_data.d_g.ptr_, g.mont_repr.data, 32, stream);
+        gpu::copy_cpu_to_gpu(gpu_data.d_c.ptr_, sconst.mont_repr.data, 32, stream);
         //need calc xor because g is change
         gpu_data.calc_xor = true;
         GpuMultiplyByCosetAndConstant<FieldT>(gpu_data, domain->m, gpu_data.d_out);
-        d_H.copy(gpu_data.d_out);
-        gpu_ctx.wait();
+        d_H.copy(gpu_data.d_out, &gpu_data.stream_);
+        gpu_ctx.wait(&gpu_data.stream_);
     }
     libff::leave_block("Compute coefficients of polynomial H");
 

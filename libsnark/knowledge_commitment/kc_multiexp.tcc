@@ -114,7 +114,7 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
       const int indices_size = vec.indices.size();
 
       gpu::GPUContext* gpu_ctx = gpu_mcl_data.gpu_ctx_;
-      cudaStream_t& stream = gpu_ctx->stream_;
+      cudaStream_t& stream = gpu_mcl_data.stream_.stream_;
       gpu::CPUContext cpu_ctx;
       assert(gpu_ctx != nullptr);
 
@@ -174,10 +174,10 @@ T gpu_kc_multi_exp_with_mixed_addition_g2_mcl(const sparse_vector<T> &vec,
         libff::copy_field_h<T, FieldT>(scalar_start[i], gpu_mcl_data.h_scalars, i);
       }
 
-      gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, stream);
-      gpu_mcl_data.d_scalars.copy(gpu_mcl_data.h_scalars);
-      gpu::gpu_set_zero(gpu_mcl_data.d_flags.ptr_, scalar_size);
-      gpu_mcl_data.d_bn_exponents.clear();
+      gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, &gpu_mcl_data.stream_);
+      gpu_mcl_data.d_scalars.copy(gpu_mcl_data.h_scalars, &gpu_mcl_data.stream_);
+      gpu::gpu_set_zero(gpu_mcl_data.d_flags.ptr_, scalar_size, stream);
+      gpu_mcl_data.d_bn_exponents.clear(&gpu_mcl_data.stream_);
       {
           gpu::mcl_bn128_g2_reduce_sum_new(
                   gpu_mcl_data.d_values, 
@@ -420,7 +420,7 @@ void kc_multi_exp_with_mixed_addition_mcl_preprocess(const sparse_vector<T> &vec
       const int indices_size = vec.indices.size();
 
       gpu::GPUContext* gpu_ctx = gpu_mcl_data.gpu_ctx_;
-      cudaStream_t& stream = gpu_ctx->stream_;
+      cudaStream_t& stream = gpu_mcl_data.stream_.stream_;
       assert(gpu_ctx != nullptr);
 
       libff::copy_t<T, FieldT>(T::zero(), gpu_mcl_data.d_t_zero, 0, stream);
@@ -487,7 +487,7 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
       //for(int i = 0; i < ranges.size(); i++){
       //    max_depth = std::max(max_depth, (int)(ranges[i].second-ranges[i].first));
       //}
-      gpu::CudaStream& stream = gpu_mcl_data.gpu_ctx_->stream_;
+      gpu::CudaStream& stream = gpu_mcl_data.stream_.stream_;
 
       const int values_size = vec.values.size();
       const size_t scalar_size = std::distance(scalar_start, scalar_end);
@@ -500,10 +500,10 @@ T kc_multi_exp_with_mixed_addition_mcl(const sparse_vector<T> &vec,
         libff::copy_field_h<T, FieldT>(scalar_start[i], gpu_mcl_data.h_scalars, i);
       }
 
-      gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values);
-      gpu_mcl_data.d_scalars.copy(gpu_mcl_data.h_scalars);
+      gpu_mcl_data.d_values.copy_from_cpu(gpu_mcl_data.h_values, &gpu_mcl_data.stream_);
+      gpu_mcl_data.d_scalars.copy(gpu_mcl_data.h_scalars, &gpu_mcl_data.stream_);
       gpu::gpu_set_zero(gpu_mcl_data.d_flags.ptr_, scalar_size, stream);
-      gpu_mcl_data.d_bn_exponents.clear();
+      gpu_mcl_data.d_bn_exponents.clear(&gpu_mcl_data.stream_);
       gpu::mcl_bn128_g1_reduce_sum(
           gpu_mcl_data.d_values, 
           gpu_mcl_data.d_scalars, 
