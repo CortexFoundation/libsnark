@@ -9,9 +9,7 @@
 #define KC_MULTIEXP_TCC_
 
 #ifdef USE_GPU
-#include "cgbn_math.h"
-#include "cgbn_fp.h"
-#include "cgbn_fp2.h"
+#include "common.h"
 #include "low_func_gpu.h"
 #include "bigint_256.cuh"
 #include <cuda_runtime.h>

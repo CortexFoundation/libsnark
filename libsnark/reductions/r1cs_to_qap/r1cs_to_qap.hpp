@@ -36,9 +36,6 @@
 #include <libsnark/relations/constraint_satisfaction_problems/r1cs/r1cs.hpp>
 
 #ifdef USE_GPU
-#include "cgbn_math.h"
-//#include "cgbn_fp.h"
-//#include "cgbn_alt_bn128_g1.h"
 #include "common.h"
 #include <cuda_runtime.h>
 #endif //end USE_GPU
@@ -70,7 +67,7 @@ qap_witness<FieldT> r1cs_to_qap_witness_map(const r1cs_constraint_system<FieldT>
                                             const FieldT &d1,
                                             const FieldT &d2,
                                             #ifdef USE_GPU
-                                            gpu::Fp_model& d_H,
+                                            gpu::Buffer<gpu::Int, gpu::N>& d_H,
                                             const FieldT &d3);
                                             #else
                                             const FieldT &d3);

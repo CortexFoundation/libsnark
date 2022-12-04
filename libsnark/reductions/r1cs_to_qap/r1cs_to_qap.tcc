@@ -391,6 +391,7 @@ struct GpuData{
         d_in_offsets.release();
         d_out_offsets.release();
         d_strides.release();
+        stream_.destroy();
     }
 
     void InitOffsets(){
@@ -580,13 +581,13 @@ void r1cs_to_qap_witness_map(const std::shared_ptr<libfqfft::evaluation_domain<F
     //gpu_data.infos.clear();
     domain->fft_internal(aA, gpu_data.infos);
     gpu_data.InitOffsets();
-    gpu::copy_cpu_to_gpu(gpu_data.d_modulus.ptr_, aA[0].get_modulus().data, 32);
-    gpu::copy_cpu_to_gpu(gpu_data.d_one.ptr_, FieldT::one().mont_repr.data, 32);
-    gpu::copy_cpu_to_gpu(gpu_data.d_g.ptr_, FieldT::multiplicative_generator.mont_repr.data, 32);
-    gpu::copy_cpu_to_gpu(gpu_data.d_c.ptr_, FieldT::one().mont_repr.data, 32);
+    gpu::copy_cpu_to_gpu(gpu_data.d_modulus.ptr_, aA[0].get_modulus().data, 32, stream);
+    gpu::copy_cpu_to_gpu(gpu_data.d_one.ptr_, FieldT::one().mont_repr.data, 32, stream);
+    gpu::copy_cpu_to_gpu(gpu_data.d_g.ptr_, FieldT::multiplicative_generator.mont_repr.data, 32, stream);
+    gpu::copy_cpu_to_gpu(gpu_data.d_c.ptr_, FieldT::one().mont_repr.data, 32, stream);
     gpu_data.const_inv = aA[0].inv;
     const FieldT sconst = FieldT(domain->m).inverse();
-    gpu::copy_cpu_to_gpu(gpu_data.d_sconst.ptr_, sconst.mont_repr.data, 32);
+    gpu::copy_cpu_to_gpu(gpu_data.d_sconst.ptr_, sconst.mont_repr.data, 32, stream);
     libff::leave_block("Compute the recursive Infos");
 
     libff::enter_block("Compute coefficients of polynomial A");
